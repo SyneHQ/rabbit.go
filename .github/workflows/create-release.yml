@@ -44,7 +44,7 @@ jobs:
       - name: Get latest version
         id: get_version
         env:
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get the latest version tag
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -81,7 +81,7 @@ jobs:
           echo "Release notes generated"
       - name: Create Release
         env:
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ env.NEW_VERSION }}
           DOCKERLIKE_RELEASE_NAME: ${{ env.DOCKERLIKE_RELEASE_NAME }}
           BRANCH: ${{ github.ref }}
