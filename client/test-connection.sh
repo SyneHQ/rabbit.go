@@ -5,8 +5,8 @@
 echo "🧪 Testing tunnel connection fix..."
 
 # Check if server and client are built
-if [ ! -f "syne-tunneler" ]; then
-    echo "❌ syne-tunneler not found. Run: go build -o syne-tunneler"
+if [ ! -f "rabbit.go" ]; then
+    echo "❌ rabbit.go not found. Run: go build -o rabbit.go"
     exit 1
 fi
 
@@ -23,7 +23,7 @@ echo "====================="
 echo ""
 
 echo "1. Start the tunnel server (in terminal 1):"
-echo "   ./syne-tunneler server --port 9999 --tokens ./tokens.txt"
+echo "   ./rabbit.go server --port 9999 --tokens ./tokens.txt"
 echo ""
 
 echo "2. Start a test HTTP server (in terminal 2):"

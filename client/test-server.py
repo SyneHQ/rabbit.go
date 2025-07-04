@@ -59,7 +59,7 @@ class TestServerHandler(http.server.SimpleHTTPRequestHandler):
                     <p>Request Path: {self.path}</p>
                     <p>Client IP: {self.client_address[0]}</p>
                 </div>
-                <p>🚀 Your syne-tunneler system is working perfectly!</p>
+                <p>🚀 Your rabbit.go system is working perfectly!</p>
                 <p>🔗 This response came through your tunnel connection.</p>
             </div>
         </body>
