@@ -64,8 +64,9 @@ type Tunnel struct {
 
 ## 🔄 Connection Flow State Machine
 
-<details> <summary>📊 Click to expand Mermaid ER Diagram</summary>
-
+<details>
+ <summary>📊 Click to expand Mermaid ER Diagram</summary>
+ 
 ```mermaid
 erDiagram
     TEAMS {
@@ -135,7 +136,6 @@ erDiagram
 ```
 </details>
 
-
 The above state diagram shows the complete tunnel lifecycle from server startup through connection handling to shutdown.
 
 ## 🔗 Database Schema Relationships
@@ -195,7 +195,9 @@ CONSTRAINT valid_protocol CHECK (protocol IN ('tcp', 'udp'))
 
 This is where the real TCP wizardry happens. Buckle up, nerds:
 
-<details> <summary>Flowchart for nerds</summary>
+<details>
+<summary>Flowchart for nerds</summary>
+
 ```mermaid
 flowchart TD
     ExtConnect["🌍 External Client Connects<br/>to Port 12345"]
