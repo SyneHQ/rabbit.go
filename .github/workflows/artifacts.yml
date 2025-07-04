@@ -1,7 +1,8 @@
 name: Rabbit.go Release
 
 on:
-  push:
+  release:
+    types: [created]
     tags:
       - 'v*'
 
