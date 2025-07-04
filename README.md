@@ -2,7 +2,7 @@
 
 **Repository**: [https://github.com/SyneHQ/rabbit.go](https://github.com/SyneHQ/rabbit.go)
 
-![](https://assets.grok.com/users/1ce68fd8-396a-45d2-94fe-3883cda65f7a/generated/53cfc5c8-f7e3-4471-9731-a58b664b241b/image.jpg)
+![](./assets/img/banner.jpg)
 
 ## 🎯 Why We Built This
 
