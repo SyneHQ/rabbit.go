@@ -6,7 +6,7 @@ on:
       - sudo
 
 env:
-  OPENAI_MODEL: gpt-4o-mini
+  OPENAI_MODEL: gpt-4.1
 
 jobs:
   create-release:
@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: read
 
     steps:
       - name: Checkout code
