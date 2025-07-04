@@ -1,0 +1,49 @@
+# Database Configuration for Syne Tunneler
+# Copy this file to .env and update with your actual database credentials
+
+# PostgreSQL Database URL
+# Format: postgres://username:password@hostname:port/database?sslmode=disable
+DATABASE_URL=postgres://postgres:password@localhost:5432/syne_tunneler?sslmode=disable
+
+# Redis URL
+# Format: redis://[:password@]hostname:port[/database]
+REDIS_URL=redis://localhost:6379
+
+# Optional: Redis Database Number (default: 0)
+REDIS_DB=0
+
+# Server Configuration
+BIND_ADDRESS=0.0.0.0
+CONTROL_PORT=9999
+LOG_LEVEL=info
+
+# Port Assignment Range (for tunnel connections)
+MIN_PORT=10000
+MAX_PORT=20000
+
+# Session Configuration
+SESSION_TIMEOUT=24h
+CLEANUP_INTERVAL=1h
+
+# Example PostgreSQL setup for development:
+#
+# 1. Install PostgreSQL
+# 2. Create database and user:
+#    CREATE DATABASE syne_tunneler;
+#    CREATE USER tunneler WITH ENCRYPTED PASSWORD 'secure_password';
+#    GRANT ALL PRIVILEGES ON DATABASE syne_tunneler TO tunneler;
+#
+# 3. Update DATABASE_URL above with your credentials
+#
+# Example Redis setup for development:
+#
+# 1. Install Redis
+# 2. Start Redis server: redis-server
+# 3. Update REDIS_URL above if needed (default should work)
+
+# Production Configuration Notes:
+# - Use strong passwords for database connections
+# - Enable SSL/TLS for PostgreSQL in production (change sslmode=require)
+# - Configure Redis with authentication in production
+# - Use environment-specific values for sensitive data
+# - Consider using connection pooling for high-traffic scenarios 
