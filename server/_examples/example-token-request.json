@@ -1,0 +1,6 @@
+{
+  "team_id": "123e4567-e89b-12d3-a456-426614174000",
+  "name": "production-db-tunnel",
+  "description": "Token for accessing production database via tunnel",
+  "expires_in_days": 90
+} 
