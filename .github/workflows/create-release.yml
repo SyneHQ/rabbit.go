@@ -1,0 +1,93 @@
+name: 🐳 Build and give it a name   
+
+on:
+  push:
+    branches:
+      - sudo
+
+env:
+  OPENAI_MODEL: gpt-4o-mini
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create a requirements.txt file
+        run: |
+          echo "names_generator" > requirements.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate Dockerlike release name
+        id: dockerlike-release-name
+        run: |
+          DOCKERLIKE_RELEASE_NAME=$(python -c "from names_generator import generate_name; print(generate_name())")
+          echo "DOCKERLIKE_RELEASE_NAME=${DOCKERLIKE_RELEASE_NAME}" >> $GITHUB_ENV
+
+      - name: Get latest version
+        id: get_version
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          # Get the latest version tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Increment patch version
+          MAJOR=$(echo $LATEST_TAG | cut -d. -f1)
+          MINOR=$(echo $LATEST_TAG | cut -d. -f2)
+          PATCH=$(echo $LATEST_TAG | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+
+      - name: Get commits
+        id: get_commits
+        shell: sh
+        run: |
+          git fetch --tags
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          COMMITS=$(git log --oneline --no-merges --pretty=format:"%s" ${LAST_TAG}..HEAD)
+          COMMITS=$(echo "$COMMITS" | tr '\n' ';')
+          echo "ALL_COMMITS=$COMMITS" >> $GITHUB_ENV
+
+      - name: Generate Release notes
+        id: generate-release-notes
+        shell: sh
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          DOCKERLIKE_RELEASE_NAME: ${{ env.DOCKERLIKE_RELEASE_NAME }}
+          NEW_VERSION: ${{ env.NEW_VERSION }}
+          COMMITS: ${{ env.ALL_COMMITS }}
+        run: |
+          echo "Generating release notes..."
+          python3 scripts/generate-release-notes.py ${{ env.OPENAI_MODEL }}
+          echo "Release notes generated"
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          NEW_VERSION: ${{ env.NEW_VERSION }}
+          DOCKERLIKE_RELEASE_NAME: ${{ env.DOCKERLIKE_RELEASE_NAME }}
+          BRANCH: ${{ github.ref }}
+        run: |
+          cat release_notes.md
+          gh release create ${NEW_VERSION} \
+            --title "${DOCKERLIKE_RELEASE_NAME}" \
+            --notes-file release_notes.md \
+            --target ${BRANCH}
