@@ -2,7 +2,9 @@
 
 **Repository**: [https://github.com/SyneHQ/rabbit.go](https://github.com/SyneHQ/rabbit.go)
 
-![](./assets/img/banner.jpg)
+**Blog Post**: [How We Built Rabbit: A Production-Ready, Private TCP Tunnel for Devs Who Need Control](https://synehq.com/blog/how-we-built-rabbit-a-production-ready-private-tcp-tunnel-for-devs-who-need-control)
+
+![](./assets/img/banner.png)
 
 ## 🎯 Why We Built This
 
