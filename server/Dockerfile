@@ -14,4 +14,4 @@ COPY --from=builder /app/rabbit.go /usr/local/bin/rabbit.go
 # 3422 is the API port (never expose this port to the internet)
 EXPOSE 9999 3422
 
-ENTRYPOINT ["/usr/local/bin/rabbit.go", "server", "--bind", "0.0.0.0", "--port", "9999", "--api-port", "3422"]
+CMD ["/usr/local/bin/rabbit.go", "server", "--bind", "0.0.0.0", "--port", "9999", "--api-port", "3422"]
