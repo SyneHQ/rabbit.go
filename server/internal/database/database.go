@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -126,10 +125,11 @@ func (d *Database) RunMigrations() error {
 
 // GetConfigFromEnv loads database configuration from environment variables
 func GetConfigFromEnv() Config {
-	// Load environment variables from .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Printf("Error loading .env file: %v", err)
+	// Load environment variables from .env file (optional - for local development)
+	// In Docker containers, environment variables are passed directly
+	if err := godotenv.Load(); err != nil {
+		// Don't log error - this is expected in Docker containers
+		// where environment variables are passed via --env-file or -e flags
 	}
 
 	return Config{
