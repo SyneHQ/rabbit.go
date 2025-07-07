@@ -308,15 +308,14 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToke
 	oldClient := tunnel.Client
 	if oldClient != nil {
 		log.Printf("🔄 Closing existing client connection for tunnel %s", tunnel.ID)
-		// Signal the tunnel to stop current operations
-		close(tunnel.stopChan)
 		oldClient.Close()
+		// Do NOT close tunnel.stopChan here! This keeps the tunnel alive.
 	}
 
 	// Update tunnel with new client connection
 	tunnel.Client = conn
 	tunnel.LocalPort = localPort
-	tunnel.stopChan = make(chan struct{}) // Reset stop channel
+	// Do NOT reset stopChan here; keep the tunnel running
 	s.mu.Unlock()
 
 	// Send success response to client
