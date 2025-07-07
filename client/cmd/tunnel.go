@@ -49,7 +49,7 @@ Warning: excessive tunneling may result in finding Wonderland. Proceed with curi
 	}
 
 	// Tunnel connection flags
-	tunnelCmd.Flags().StringVar(&serverAddress, "server", "tunneler.rabbit.go", "Tunnel server address (host:port)")
+	tunnelCmd.Flags().StringVar(&serverAddress, "server", "rabbit.synehq.com", "Tunnel server address (host:port)")
 	tunnelCmd.Flags().StringVar(&localPort, "local-port", "5432", "Local port to tunnel")
 	tunnelCmd.Flags().StringVar(&token, "token", "default", "Authentication token")
 
