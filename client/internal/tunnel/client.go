@@ -23,6 +23,7 @@ type TunnelClient struct {
 	isConnected    bool
 	connectionMu   sync.RWMutex
 	reconnectCount int
+	stopped        bool // Prevent reconnect after user shutdown
 }
 
 // TunnelClientConfig holds configuration for our custom tunnel client
@@ -83,6 +84,9 @@ func (tc *TunnelClient) connectionManager() {
 	for {
 		select {
 		case <-tc.stopSignal:
+			tc.connectionMu.Lock()
+			tc.stopped = true
+			tc.connectionMu.Unlock()
 			return
 		default:
 			attempt++
@@ -103,8 +107,18 @@ func (tc *TunnelClient) connectionManager() {
 
 				select {
 				case <-tc.stopSignal:
+					tc.connectionMu.Lock()
+					tc.stopped = true
+					tc.connectionMu.Unlock()
 					return
 				case <-time.After(delay):
+					// Before retrying, check if stopped
+					tc.connectionMu.RLock()
+					if tc.stopped {
+						tc.connectionMu.RUnlock()
+						return
+					}
+					tc.connectionMu.RUnlock()
 					continue
 				}
 			} else {
@@ -125,6 +139,13 @@ func (tc *TunnelClient) connectionManager() {
 				// Wait for connection to end
 				tc.waitForDisconnection()
 
+				// Before retrying, check if stopped
+				tc.connectionMu.RLock()
+				if tc.stopped {
+					tc.connectionMu.RUnlock()
+					return
+				}
+				tc.connectionMu.RUnlock()
 				fmt.Printf("🔌 Connection lost. Attempting to reconnect...\n")
 			}
 		}
@@ -387,6 +408,13 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 func (tc *TunnelClient) Stop() error {
 	fmt.Printf("🛑 Stopping tunnel client...\n")
 	close(tc.stopSignal)
+	tc.connectionMu.Lock()
+	if tc.controlConn != nil {
+		// Send disconnect message to server
+		tc.controlConn.Write([]byte("DISCONNECT\n"))
+	}
+	tc.stopped = true
+	tc.connectionMu.Unlock()
 
 	tc.disconnect()
 	tc.wg.Wait()

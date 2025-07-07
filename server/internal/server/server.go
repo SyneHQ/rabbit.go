@@ -289,7 +289,22 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 		tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
 
 	// Keep connection alive and handle tunnel traffic
-	tunnel.handleTunnel()
+	// Listen for DISCONNECT message from client
+	go tunnel.handleTunnel()
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
+			break
+		}
+		line = strings.TrimSpace(line)
+		if line == "DISCONNECT" {
+			log.Printf("🚪 Client requested disconnect for tunnel %s", tunnel.ID)
+			s.stopTunnel(tunnel)
+			break
+		}
+	}
 }
 
 // findTunnelByTokenAndPort finds any tunnel (restored or active) by token and port
