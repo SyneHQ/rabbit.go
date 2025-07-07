@@ -59,6 +59,7 @@ type Tunnel struct {
 	Listener     net.Listener
 	CreatedAt    time.Time
 	stopChan     chan struct{}
+	stopOnce     sync.Once // Ensure stopChan is only closed once
 	wg           sync.WaitGroup
 
 	// Database tracking
@@ -441,6 +442,8 @@ func (t *Tunnel) handleTunnel() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in tunnel %s: %v", t.ID, r)
 		}
+		// Ensure stopChan is closed when client disconnects
+		t.stopOnce.Do(func() { close(t.stopChan) })
 	}()
 
 	defer t.Client.Close()
@@ -718,7 +721,7 @@ func getServerFromTunnel(_ *Tunnel) *Server {
 
 // stopTunnel stops a tunnel
 func (s *Server) stopTunnel(tunnel *Tunnel) {
-	close(tunnel.stopChan)
+	tunnel.stopOnce.Do(func() { close(tunnel.stopChan) })
 	if tunnel.Listener != nil {
 		tunnel.Listener.Close()
 	}
