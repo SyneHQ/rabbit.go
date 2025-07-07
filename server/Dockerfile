@@ -6,7 +6,7 @@ COPY . .
 
 RUN go build -ldflags="-s -w" -o rabbit.go main.go
 
-FROM debian:12-alpine AS runner
+FROM debian:12 AS runner
 
 COPY --from=builder /app/rabbit.go /usr/local/bin/rabbit.go
 COPY --from=builder /app/internal/database/migrations.sql /usr/local/bin/internal/database/migrations.sql
