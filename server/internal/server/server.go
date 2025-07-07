@@ -391,7 +391,7 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 	remotePort := strconv.Itoa(portAssignment.Port)
 
 	// Create listener for the tunnel on the assigned port
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", remotePort))
+	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.BindAddress, remotePort))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tunnel listener on port %s: %v", remotePort, err)
 	}
@@ -404,7 +404,7 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 		PortAssignID: portAssignment.ID.String(),
 		LocalPort:    localPort,
 		RemotePort:   remotePort,
-		BindAddress:  "127.0.0.1",
+		BindAddress:  s.config.BindAddress,
 		Client:       client,
 		Listener:     listener,
 		CreatedAt:    time.Now(),
@@ -812,7 +812,7 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 	}
 
 	// Create listener on the assigned port
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portAssignment.Port)))
+	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.BindAddress, strconv.Itoa(portAssignment.Port)))
 	if err != nil {
 		return fmt.Errorf("failed to create listener on port %d: %w", portAssignment.Port, err)
 	}
@@ -826,7 +826,7 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 		PortAssignID: portAssignment.ID.String(),
 		LocalPort:    "restored",
 		RemotePort:   strconv.Itoa(portAssignment.Port),
-		BindAddress:  "127.0.0.1",
+		BindAddress:  s.config.BindAddress,
 		Client:       nil, // No client connection for restored tunnels initially
 		Listener:     listener,
 		CreatedAt:    time.Now(),
