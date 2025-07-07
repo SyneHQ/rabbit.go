@@ -90,7 +90,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 
 	// Verify team exists
 	var teamExists bool
-	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM public.\"Team\" WHERE id = $1 AND is_active = true)", teamID).Scan(&teamExists)
+	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM public.\"Team\" WHERE id = $1 AND deleted = false)", teamID).Scan(&teamExists)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check team existence: %w", err)
 	}
