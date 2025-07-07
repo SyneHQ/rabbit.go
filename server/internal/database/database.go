@@ -105,8 +105,8 @@ func (d *Database) CleanUp() error {
 }
 
 // RunMigrations runs the database migrations
-func (d *Database) RunMigrations() error {
-	migrationFile := "internal/database/migrations.sql"
+func (d *Database) RunMigrations(path string) error {
+	migrationFile := path
 
 	// Read migration file
 	migrationSQL, err := os.ReadFile(migrationFile)

@@ -23,9 +23,10 @@ var databaseCmd = &cobra.Command{
 }
 
 var migrateCmd = &cobra.Command{
-	Use:   "migrate",
+	Use:   "migrate <path>",
 	Short: "Run database migrations",
 	Long:  `Create database tables and run migrations.`,
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		config := database.GetConfigFromEnv()
 		db, err := database.NewDatabase(config)
@@ -42,7 +43,7 @@ var migrateCmd = &cobra.Command{
 		// 	return fmt.Errorf("failed to clean up database: %w", err)
 		// }
 
-		if err := db.RunMigrations(); err != nil {
+		if err := db.RunMigrations(args[0]); err != nil {
 			return fmt.Errorf("migration failed: %w", err)
 		}
 

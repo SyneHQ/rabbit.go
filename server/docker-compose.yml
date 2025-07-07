@@ -9,7 +9,7 @@ services:
       - "9999:9999"
       - "3422:3422"
     env_file:
-      - .env
+      - ./.env
     depends_on:
       rabbit-migrate:
         condition: service_completed_successfully
@@ -21,9 +21,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: /usr/local/bin/rabbit.go database migrate
+    command: /usr/local/bin/rabbit.go database migrate /usr/local/bin/internal/database/migrations.sql
     env_file:
-      - .env
+      - ./.env
     networks:
       # optional, if you want to use dokploy network
       - dokploy-network
@@ -31,4 +31,4 @@ services:
 networks:
   # optional, if you want to use dokploy network
   dokploy-network:
-    external: true
+    driver: bridge
