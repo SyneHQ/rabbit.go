@@ -5,9 +5,8 @@ set -e
 REPO_URL="https://github.com/SyneHQ/rabbit.go"
 
 # make a api request to the repo to get the latest release
-# LATEST_RELEASE=$(curl -s https://api.github.com/repos/SyneHQ/rabbit.go/releases/latest)
-# RABBIT_VERSION=$(echo "$LATEST_RELEASE" | tr -d '\000-\037' | jq -r '.tag_name' | cut -c 2-)
-RABBIT_VERSION="0.0.4"
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/SyneHQ/rabbit.go/releases/latest)
+RABBIT_VERSION=$(echo "$LATEST_RELEASE" | tr -d '\000-\037' | jq -r '.tag_name' | cut -c 2-)
 BASE_URL="${REPO_URL}/releases/download/v${RABBIT_VERSION}"
 
 echo "Latest rabbit.go version: $RABBIT_VERSION"
