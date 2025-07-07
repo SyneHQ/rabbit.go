@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  rabbit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9999:9999"
+      - "3422:3422"
+    env_file:
+      - .env
+    depends_on:
+      rabbit-migrate:
+        condition: service_completed_successfully
+    networks:
+      # optional, if you want to use dokploy network
+      - dokploy-network
+
+  rabbit-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: /usr/local/bin/rabbit.go database migrate
+    env_file:
+      - .env
+    networks:
+      # optional, if you want to use dokploy network
+      - dokploy-network
+
+networks:
+  # optional, if you want to use dokploy network
+  dokploy-network:
+    external: true
