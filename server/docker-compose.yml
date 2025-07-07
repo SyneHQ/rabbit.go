@@ -31,4 +31,4 @@ services:
 networks:
   # optional, if you want to use dokploy network
   dokploy-network:
-    driver: bridge
+    external: true
