@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
 	"rabbit.go/internal/database"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
@@ -95,7 +97,7 @@ type StatsResponse struct {
 }
 
 // NewAPIServer creates a new API server instance
-func NewAPIServer(dbService *database.Service, bindAddress string, apiPort string) *APIServer {
+func NewAPIServer(dbService *database.Service, bindAddress string, apiPort string, controlPort string) *APIServer {
 	router := mux.NewRouter()
 
 	apiServer := &APIServer{
@@ -103,7 +105,7 @@ func NewAPIServer(dbService *database.Service, bindAddress string, apiPort strin
 	}
 
 	// Setup routes
-	apiServer.setupRoutes(router)
+	apiServer.setupRoutes(router, controlPort)
 
 	// Create HTTP server
 	apiServer.server = &http.Server{
@@ -118,7 +120,7 @@ func NewAPIServer(dbService *database.Service, bindAddress string, apiPort strin
 }
 
 // setupRoutes configures all HTTP API routes
-func (api *APIServer) setupRoutes(router *mux.Router) {
+func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 	// Add CORS middleware
 	router.Use(corsMiddleware)
 	router.Use(loggingMiddleware)
@@ -132,7 +134,9 @@ func (api *APIServer) setupRoutes(router *mux.Router) {
 	v1.HandleFunc("/teams/{teamId}/tokens", api.getTeamTokens).Methods("GET")
 	v1.HandleFunc("/stats", api.getStats).Methods("GET")
 	v1.HandleFunc("/health", api.healthCheck).Methods("GET")
-
+	v1.HandleFunc("/teams/{teamId}/tokens/{tokenId}", func(w http.ResponseWriter, r *http.Request) {
+		api.deleteToken(w, r, controlPort)
+	}).Methods("DELETE")
 	// Root endpoint
 	router.HandleFunc("/", api.homeEndpoint).Methods("GET")
 }
@@ -147,6 +151,7 @@ func (api *APIServer) Start() error {
 	log.Printf("   GET  /api/v1/stats - Database statistics")
 	log.Printf("   POST /api/v1/tokens/generate - Generate new token")
 	log.Printf("   GET  /api/v1/teams/:teamId/tokens - Get team's tokens")
+	log.Printf("   DELETE /api/v1/teams/:teamId/tokens/:tokenId - Delete a token")
 
 	return api.server.ListenAndServe()
 }
@@ -156,6 +161,38 @@ func (api *APIServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return api.server.Shutdown(ctx)
+}
+
+// deleteToken handles DELETE /api/v1/teams/:teamId/tokens/:tokenId
+func (api *APIServer) deleteToken(w http.ResponseWriter, r *http.Request, controlPort string) {
+	vars := mux.Vars(r)
+	teamId := vars["teamId"]
+	tokenId := vars["tokenId"]
+	ctx := context.Background()
+	portAssignment, err := api.dbService.DeleteTunnelForTeam(ctx, teamId, uuid.MustParse(tokenId))
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, TokenGenerationResponse{
+			Success: false,
+			Error:   "failed to delete token",
+		})
+		return
+	}
+
+	// notify server - dial tcp:
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%s", controlPort))
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, TokenGenerationResponse{
+			Success: false,
+			Error:   "failed to notify server",
+		})
+	}
+	defer conn.Close()
+	conn.Write([]byte(fmt.Sprintf("delete_port_%s", portAssignment.Port)))
+
+	respondWithJSON(w, http.StatusOK, TokenGenerationResponse{
+		Success: true,
+		Message: "Token deleted successfully",
+	})
 }
 
 // generateToken handles POST /api/v1/tokens/generate
@@ -372,13 +409,15 @@ func (api *APIServer) healthCheck(w http.ResponseWriter, r *http.Request) {
 func (api *APIServer) homeEndpoint(w http.ResponseWriter, r *http.Request) {
 	info := map[string]interface{}{
 		"service":     "rabbit.go-api",
-		"version":     "1.0.0",
+		"version":     "1.0.1",
 		"description": "Database-backed token management API for Syne Tunneler",
 		"endpoints": map[string]string{
-			"health":         "GET /api/v1/health",
-			"teams":          "GET /api/v1/teams",
-			"stats":          "GET /api/v1/stats",
-			"generate_token": "POST /api/v1/tokens/generate",
+			"health":          "GET /api/v1/health",
+			"teams":           "GET /api/v1/teams",
+			"stats":           "GET /api/v1/stats",
+			"generate_token":  "POST /api/v1/tokens/generate",
+			"get_team_tokens": "GET /api/v1/teams/:teamId/tokens",
+			"delete_token":    "DELETE /api/v1/teams/:teamId/tokens/:tokenId",
 		},
 		"timestamp": time.Now().UTC(),
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"rabbit.go/internal/database"
+	"rabbit.go/internal/middleware"
 
 	"github.com/google/uuid"
 )
@@ -43,6 +44,9 @@ type Server struct {
 
 	// API server
 	apiServer *APIServer
+
+	// Security middleware
+	securityMiddleware *middleware.SecurityMiddleware
 }
 
 // Tunnel represents an active tunnel session
@@ -101,17 +105,22 @@ func NewServer(config Config) (*Server, error) {
 
 	log.Printf("✅ Database connection established")
 
+	// Initialize security middleware
+	securityConfig := middleware.DefaultSecurityConfig()
+	securityMiddleware := middleware.NewSecurityMiddleware(securityConfig)
+
 	server := &Server{
-		config:       config,
-		tunnels:      make(map[string]*Tunnel),
-		pendingConns: make(map[string]chan net.Conn),
-		stopChan:     make(chan struct{}),
-		dbService:    dbService,
+		config:             config,
+		tunnels:            make(map[string]*Tunnel),
+		pendingConns:       make(map[string]chan net.Conn),
+		stopChan:           make(chan struct{}),
+		dbService:          dbService,
+		securityMiddleware: securityMiddleware,
 	}
 
 	// Create API server if port is specified
 	if config.APIPort != "" {
-		server.apiServer = NewAPIServer(dbService, config.BindAddress, config.APIPort)
+		server.apiServer = NewAPIServer(dbService, config.BindAddress, config.APIPort, config.ControlPort)
 	}
 
 	return server, nil
@@ -134,6 +143,7 @@ func (s *Server) Start() error {
 	}
 
 	log.Printf("🚀 Tunnel server started on %s:%s", s.config.BindAddress, s.config.ControlPort)
+	log.Printf("🔐 Security middleware enabled")
 	log.Printf("📡 Using database-based authentication")
 
 	// Restore active connections from database
@@ -164,6 +174,11 @@ func (s *Server) Stop() error {
 
 	if s.controlListener != nil {
 		s.controlListener.Close()
+	}
+
+	// Stop security middleware
+	if s.securityMiddleware != nil {
+		s.securityMiddleware.Stop()
 	}
 
 	// Stop API server
@@ -201,8 +216,18 @@ func (s *Server) handleControlConnections() {
 				continue
 			}
 
+			// Apply security validation
+			if err := s.securityMiddleware.ValidateConnection(conn); err != nil {
+				log.Printf("🚫 Connection rejected from %s: %v", conn.RemoteAddr(), err)
+				conn.Close()
+				continue
+			}
+
+			// Wrap connection with security features
+			secureConn := s.securityMiddleware.WrapConnection(conn)
+
 			s.wg.Add(1)
-			go s.handleControlConnection(conn)
+			go s.handleControlConnection(secureConn)
 		}
 	}
 }
@@ -228,6 +253,12 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	// Handle data connections
 	if strings.HasPrefix(firstLine, "DATA:") {
 		s.handleDataConnection(conn, firstLine)
+		return
+	}
+
+	// Handle delete port commands from API
+	if strings.HasPrefix(firstLine, "delete_port_") {
+		s.handleDeletePortCommand(conn, firstLine)
 		return
 	}
 
@@ -307,6 +338,49 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	}
 }
 
+// handleDeletePortCommand handles delete port commands from the API
+func (s *Server) handleDeletePortCommand(conn net.Conn, commandLine string) {
+	defer conn.Close()
+
+	// Parse the command: delete_port_PORT
+	parts := strings.Split(commandLine, "_")
+	if len(parts) < 3 {
+		log.Printf("Invalid delete port command format: %s", commandLine)
+		return
+	}
+
+	portStr := parts[2]
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		log.Printf("Invalid port in delete command: %s", portStr)
+		return
+	}
+
+	log.Printf("🗑️ Received delete port command for port %d", port)
+
+	// Find and stop any tunnels using this port
+	s.mu.Lock()
+	var tunnelsToStop []*Tunnel
+	for _, tunnel := range s.tunnels {
+		if tunnel.RemotePort == portStr {
+			tunnelsToStop = append(tunnelsToStop, tunnel)
+		}
+	}
+	s.mu.Unlock()
+
+	// Stop the tunnels
+	for _, tunnel := range tunnelsToStop {
+		log.Printf("🛑 Stopping tunnel %s on port %d due to token deletion", tunnel.ID, port)
+		s.stopTunnel(tunnel)
+	}
+
+	if len(tunnelsToStop) > 0 {
+		log.Printf("✅ Stopped %d tunnel(s) on port %d", len(tunnelsToStop), port)
+	} else {
+		log.Printf("ℹ️ No active tunnels found on port %d", port)
+	}
+}
+
 // findTunnelByTokenAndPort finds any tunnel (restored or active) by token and port
 func (s *Server) findTunnelByTokenAndPort(token string, port int) *Tunnel {
 	for _, tunnel := range s.tunnels {
@@ -318,7 +392,7 @@ func (s *Server) findTunnelByTokenAndPort(token string, port int) *Tunnel {
 }
 
 // reconnectClientToTunnel reconnects a client to an existing restored tunnel
-func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToken *database.TeamToken, portAssignment *database.PortAssignment, localPort string) {
+func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToken *database.TeamToken, _ *database.PortAssignment, localPort string) {
 	// If there's an existing client, close it gracefully
 	s.mu.Lock()
 	oldClient := tunnel.Client
@@ -501,6 +575,18 @@ func (t *Tunnel) acceptConnections() {
 					log.Printf("Error accepting connection on tunnel %s: %v", t.ID, err)
 				}
 				return
+			}
+
+			// Apply security validation for external connections
+			server := getServerFromTunnel(t)
+			if server != nil && server.securityMiddleware != nil {
+				if err := server.securityMiddleware.ValidateConnection(conn); err != nil {
+					log.Printf("🚫 External connection rejected for tunnel %s from %s: %v", t.ID, conn.RemoteAddr(), err)
+					conn.Close()
+					continue
+				}
+				// Wrap with security features
+				conn = server.securityMiddleware.WrapConnection(conn)
 			}
 
 			t.wg.Add(1)
@@ -880,6 +966,18 @@ func (t *Tunnel) acceptRestoredConnections(_ *Server) {
 					log.Printf("Error accepting connection on restored tunnel %s: %v", t.ID, err)
 				}
 				return
+			}
+
+			// Apply security validation for external connections to restored ports
+			server := getServerFromTunnel(t)
+			if server != nil && server.securityMiddleware != nil {
+				if err := server.securityMiddleware.ValidateConnection(conn); err != nil {
+					log.Printf("🚫 External connection rejected for restored port %s from %s: %v", t.RemotePort, conn.RemoteAddr(), err)
+					conn.Close()
+					continue
+				}
+				// Wrap with security features
+				conn = server.securityMiddleware.WrapConnection(conn)
 			}
 
 			// For restored tunnels without clients, just send helpful message
