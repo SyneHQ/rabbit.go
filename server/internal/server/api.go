@@ -57,6 +57,14 @@ type TeamListResponse struct {
 	Data    []TeamInfo `json:"data,omitempty"`
 }
 
+// TeamTokenResponse represents the response for a team's token
+type TeamTokenResponse struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Data    []TokenInfo `json:"data,omitempty"`
+}
+
 // TeamInfo represents team information with tokens and ports
 type TeamInfo struct {
 	TeamID      string      `json:"team_id"`
@@ -121,6 +129,7 @@ func (api *APIServer) setupRoutes(router *mux.Router) {
 	// Token management
 	v1.HandleFunc("/tokens/generate", api.generateToken).Methods("POST")
 	v1.HandleFunc("/teams", api.listTeams).Methods("GET")
+	v1.HandleFunc("/teams/{teamId}/tokens", api.getTeamTokens).Methods("GET")
 	v1.HandleFunc("/stats", api.getStats).Methods("GET")
 	v1.HandleFunc("/health", api.healthCheck).Methods("GET")
 
@@ -137,6 +146,7 @@ func (api *APIServer) Start() error {
 	log.Printf("   GET  /api/v1/teams - List teams with tokens")
 	log.Printf("   GET  /api/v1/stats - Database statistics")
 	log.Printf("   POST /api/v1/tokens/generate - Generate new token")
+	log.Printf("   GET  /api/v1/teams/:teamId/tokens - Get team's tokens")
 
 	return api.server.ListenAndServe()
 }
@@ -226,6 +236,71 @@ func (api *APIServer) generateToken(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ Token generated via API for team %s: %s (port: %d)", team.Name, token.Name, assignment.Port)
 
 	respondWithJSON(w, http.StatusCreated, response)
+}
+
+// getTeamTokens handles GET /api/v1/teams/:teamId/tokens
+func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	teamId := vars["teamId"]
+
+	ctx := context.Background()
+	_, err := api.dbService.GetTeamByID(ctx, teamId)
+	if err != nil {
+		respondWithJSON(w, http.StatusNotFound, TeamTokenResponse{
+			Success: false,
+			Error:   "team not found",
+		})
+		return
+	}
+
+	teamTokens, err := api.dbService.ListTokensByTeamID(ctx, teamId)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, TeamTokenResponse{
+			Success: false,
+			Error:   "failed to get team tokens",
+		})
+		return
+	}
+
+	portAssignments, err := api.dbService.ListPortAssignmentsByTeamID(ctx, teamId)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, TeamTokenResponse{
+			Success: false,
+			Error:   "failed to get team port assignments",
+		})
+		return
+	}
+
+	portAssignmentsMap := make(map[string]database.PortAssignment)
+	for _, assignment := range portAssignments {
+		portAssignmentsMap[assignment.ID.String()] = assignment
+	}
+
+	var tokenInfos []TokenInfo
+	for _, token := range teamTokens {
+		portAssignment, ok := portAssignmentsMap[token.ID.String()]
+		if !ok {
+			portAssignment = database.PortAssignment{}
+		}
+		tokenInfos = append(tokenInfos, TokenInfo{
+			TokenID:     token.ID.String(),
+			Name:        token.Name,
+			Description: token.Description,
+			Port:        portAssignment.Port,
+			Protocol:    portAssignment.Protocol,
+			CreatedAt:   token.CreatedAt,
+			LastUsedAt:  token.LastUsedAt,
+			ExpiresAt:   token.ExpiresAt,
+		})
+	}
+
+	response := TeamTokenResponse{
+		Success: true,
+		Message: "Team tokens retrieved successfully",
+		Data:    tokenInfos,
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 // listTeams handles GET /api/v1/teams

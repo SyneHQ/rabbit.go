@@ -258,3 +258,13 @@ func (s *Service) ReactivateRestoredTunnel(ctx context.Context, sessionID uuid.U
 func (s *Service) GetRestoredTunnelInfo(ctx context.Context, sessionID uuid.UUID) (*ConnectionSession, *TeamToken, *PortAssignment, error) {
 	return s.repo.GetSessionWithDetails(ctx, sessionID)
 }
+
+// ListTokensByTeamID retrieves all tokens for a team
+func (s *Service) ListTokensByTeamID(ctx context.Context, teamID string) ([]TeamToken, error) {
+	return s.repo.ListTokensByTeamID(ctx, teamID)
+}
+
+// ListPortAssignmentsByTeamID retrieves all port assignments for a team
+func (s *Service) ListPortAssignmentsByTeamID(ctx context.Context, teamID string) ([]PortAssignment, error) {
+	return s.repo.ListPortAssignmentsByTeamID(ctx, teamID)
+}

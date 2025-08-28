@@ -73,6 +73,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		fmt.Printf("API server is running on %s:%s\n", bindAddress, apiPort)
 		fmt.Printf("API endpoints:\n")
 		fmt.Printf("  POST http://%s:%s/api/v1/tokens/generate - Generate new token\n", bindAddress, apiPort)
+		fmt.Printf("  GET  http://%s:%s/api/v1/teams/:teamId/tokens - Get token details\n", bindAddress, apiPort)
 		fmt.Printf("  GET  http://%s:%s/api/v1/teams - List teams with tokens\n", bindAddress, apiPort)
 		fmt.Printf("  GET  http://%s:%s/api/v1/health - Health check\n", bindAddress, apiPort)
 		fmt.Printf("  GET  http://%s:%s/api/v1/stats - Database statistics\n", bindAddress, apiPort)

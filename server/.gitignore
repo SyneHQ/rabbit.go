@@ -1,2 +1,3 @@
 rabbit.go
 .env
+*.DS_Store

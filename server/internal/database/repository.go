@@ -321,6 +321,30 @@ func (r *Repository) ListTeamsWithTokens(ctx context.Context) ([]TokenRow, error
 	return tokenRows, nil
 }
 
+// ListTokensByTeamID retrieves all tokens for a team
+func (r *Repository) ListTokensByTeamID(ctx context.Context, teamID string) ([]TeamToken, error) {
+	query := `SELECT id, team_id, token, name, description, created_at, expires_at, last_used_at, is_active FROM team_tokens WHERE team_id = $1`
+
+	rows, err := r.db.DB.QueryContext(ctx, query, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tokens: %w", err)
+	}
+	defer rows.Close()
+
+	var tokens []TeamToken
+	for rows.Next() {
+		var token TeamToken
+		err := rows.Scan(&token.ID, &token.TeamID, &token.Token, &token.Name, &token.Description, &token.CreatedAt, &token.ExpiresAt, &token.LastUsedAt, &token.IsActive)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan token: %w", err)
+		}
+
+		tokens = append(tokens, token)
+	}
+
+	return tokens, nil
+}
+
 // UpdateTokenLastUsed updates the last used timestamp for a token
 func (r *Repository) UpdateTokenLastUsed(ctx context.Context, tokenID uuid.UUID) error {
 	query := `UPDATE team_tokens SET last_used_at = NOW() WHERE id = $1`
@@ -390,6 +414,30 @@ func (r *Repository) GetPortAssignmentByPort(ctx context.Context, port int, prot
 	}
 
 	return assignment, nil
+}
+
+// ListPortAssignmentsByTeamID retrieves all port assignments for a team
+func (r *Repository) ListPortAssignmentsByTeamID(ctx context.Context, teamID string) ([]PortAssignment, error) {
+	query := `SELECT id, team_id, token_id, port, protocol, is_reserved, created_at, updated_at FROM port_assignments WHERE team_id = $1`
+
+	rows, err := r.db.DB.QueryContext(ctx, query, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query port assignments: %w", err)
+	}
+	defer rows.Close()
+
+	var assignments []PortAssignment
+	for rows.Next() {
+		var assignment PortAssignment
+		err := rows.Scan(&assignment.ID, &assignment.TeamID, &assignment.TokenID, &assignment.Port,
+			&assignment.Protocol, &assignment.IsReserved, &assignment.CreatedAt, &assignment.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan port assignment: %w", err)
+		}
+		assignments = append(assignments, assignment)
+	}
+
+	return assignments, nil
 }
 
 // Connection Session operations
