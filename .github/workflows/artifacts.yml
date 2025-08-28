@@ -9,7 +9,7 @@ on:
         default: "v0.0.0"
 
   release:
-    types: [created]
+    types: [created, edited]
     tags:
       - 'v*'
 
