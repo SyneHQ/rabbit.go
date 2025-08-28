@@ -273,7 +273,7 @@ func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
 
 	portAssignmentsMap := make(map[string]database.PortAssignment)
 	for _, assignment := range portAssignments {
-		portAssignmentsMap[assignment.ID.String()] = assignment
+		portAssignmentsMap[assignment.TokenID.String()] = assignment
 	}
 
 	var tokenInfos []TokenInfo
