@@ -78,6 +78,7 @@ curl -X POST http://localhost:3422/api/tokens -d '{"team":"Development Team"}'
 ### Get tokens and ports for a team
 ```bash
 curl -X GET  http://localhost:3422/api/v1/teams/:teamId/tokens
+```
 
 ## 🎯 Perfect For
 
