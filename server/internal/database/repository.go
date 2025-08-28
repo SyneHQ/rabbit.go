@@ -749,5 +749,12 @@ func (r *Repository) DeletePortAssignmentForToken(ctx context.Context, teamID st
 	if err != nil {
 		return nil, fmt.Errorf("failed to release port: %w", err)
 	}
+
+	// now delete the port assignment
+	query = `DELETE FROM port_assignments WHERE team_id = $1 AND token_id = $2 CASCADE`
+	_, err = r.db.DB.ExecContext(ctx, query, teamID, tokenID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete port assignment: %w", err)
+	}
 	return portAssignment, nil
 }
