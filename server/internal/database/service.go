@@ -268,3 +268,12 @@ func (s *Service) ListTokensByTeamID(ctx context.Context, teamID string) ([]Team
 func (s *Service) ListPortAssignmentsByTeamID(ctx context.Context, teamID string) ([]PortAssignment, error) {
 	return s.repo.ListPortAssignmentsByTeamID(ctx, teamID)
 }
+
+// Delete a tcp tunnel for a team
+func (s *Service) DeleteTunnelForTeam(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
+	portAssignment, err := s.repo.DeleteTokenForTeam(ctx, teamID, tokenID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete token: %w", err)
+	}
+	return portAssignment, nil
+}

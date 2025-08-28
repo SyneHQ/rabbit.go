@@ -133,7 +133,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 	}
 
 	// Find available port
-	availablePort, err := r.findAvailablePortInTx(ctx, tx, 10000, 20000, "tcp")
+	availablePort, err := r.findAvailablePortInTx(ctx, tx, 10000, 65535, "tcp")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find available port: %w", err)
 	}
@@ -150,7 +150,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 		TokenID:    teamToken.ID,
 		Port:       availablePort,
 		Protocol:   "tcp",
-		IsReserved: false,
+		IsReserved: true,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -186,6 +186,7 @@ func (r *Repository) findAvailablePortInTx(ctx context.Context, tx *sql.Tx, star
 	query := `
 		SELECT port FROM port_assignments
 		WHERE port BETWEEN $1 AND $2 AND protocol = $3
+		AND is_reserved = true
 		ORDER BY port`
 
 	rows, err := tx.QueryContext(ctx, query, startPort, endPort, protocol)
@@ -369,7 +370,7 @@ func (r *Repository) GetPortAssignmentByToken(ctx context.Context, tokenID uuid.
 		FROM port_assignments pa
 		JOIN "Team" t ON pa.team_id = t.id AND t.deleted = false
 		JOIN team_tokens tt ON pa.token_id = tt.id
-		WHERE pa.token_id = $1`
+		WHERE pa.token_id = $1 AND pa.is_reserved = true`
 
 	team := &Team{}
 	token := &TeamToken{}
@@ -399,7 +400,7 @@ func (r *Repository) GetPortAssignmentByPort(ctx context.Context, port int, prot
 	assignment := &PortAssignment{}
 	query := `
 		SELECT id, team_id, token_id, port, protocol, is_reserved, created_at, updated_at
-		FROM port_assignments WHERE port = $1 AND protocol = $2`
+		FROM port_assignments WHERE port = $1 AND protocol = $2 AND is_reserved = true`
 
 	err := r.db.DB.QueryRowContext(ctx, query, port, protocol).Scan(
 		&assignment.ID, &assignment.TeamID, &assignment.TokenID, &assignment.Port,
@@ -418,7 +419,7 @@ func (r *Repository) GetPortAssignmentByPort(ctx context.Context, port int, prot
 
 // ListPortAssignmentsByTeamID retrieves all port assignments for a team
 func (r *Repository) ListPortAssignmentsByTeamID(ctx context.Context, teamID string) ([]PortAssignment, error) {
-	query := `SELECT id, team_id, token_id, port, protocol, is_reserved, created_at, updated_at FROM port_assignments WHERE team_id = $1`
+	query := `SELECT id, team_id, token_id, port, protocol, is_reserved, created_at, updated_at FROM port_assignments WHERE team_id = $1 AND is_reserved = true`
 
 	rows, err := r.db.DB.QueryContext(ctx, query, teamID)
 	if err != nil {
@@ -721,4 +722,32 @@ func (r *Repository) MarkStaleSessionsInactive(ctx context.Context, staleThresho
 	}
 
 	return int(rowsAffected), nil
+}
+
+// delete a token for a team
+func (r *Repository) DeleteTokenForTeam(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
+	query := `UPDATE team_tokens SET is_active = false WHERE team_id = $1 AND id = $2`
+	_, err := r.db.DB.ExecContext(ctx, query, teamID, tokenID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete token: %w", err)
+	}
+	portAssignment, err := r.DeletePortAssignmentForToken(ctx, teamID, tokenID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete port assignment: %w", err)
+	}
+	return portAssignment, nil
+}
+
+// delete a port assignment for a token
+func (r *Repository) DeletePortAssignmentForToken(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
+	query := `UPDATE port_assignments SET is_reserved = false WHERE team_id = $1 AND token_id = $2`
+	portAssignment := &PortAssignment{}
+	err := r.db.DB.QueryRowContext(ctx, query, teamID, tokenID).Scan(
+		&portAssignment.ID, &portAssignment.TeamID, &portAssignment.TokenID, &portAssignment.Port,
+		&portAssignment.Protocol, &portAssignment.IsReserved, &portAssignment.CreatedAt, &portAssignment.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to release port: %w", err)
+	}
+	return portAssignment, nil
 }
