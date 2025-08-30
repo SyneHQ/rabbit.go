@@ -9,9 +9,7 @@ on:
         default: "v0.0.0"
 
   release:
-    types: [created]
-    tags:
-      - 'v*'
+    types: [created, edited]
 
 permissions:
   contents: write
