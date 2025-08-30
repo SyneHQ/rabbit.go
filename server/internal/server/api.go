@@ -78,6 +78,7 @@ type TeamInfo struct {
 
 // TokenInfo represents token information
 type TokenInfo struct {
+	Token       string     `json:"token"`
 	TokenID     string     `json:"token_id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
@@ -323,6 +324,7 @@ func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
 			TokenID:     token.ID.String(),
 			Name:        token.Name,
 			Description: token.Description,
+			Token:       token.Token,
 			Port:        portAssignment.Port,
 			Protocol:    portAssignment.Protocol,
 			CreatedAt:   token.CreatedAt,
