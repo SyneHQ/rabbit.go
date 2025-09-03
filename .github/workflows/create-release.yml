@@ -10,7 +10,7 @@ env:
 
 jobs:
   create-release:
-    runs-on: ubuntu-latest
+    runs-on: arc-runners
     permissions:
       contents: write
       packages: write
