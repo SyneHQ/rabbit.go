@@ -186,7 +186,6 @@ func (r *Repository) findAvailablePortInTx(ctx context.Context, tx *sql.Tx, star
 	query := `
 		SELECT port FROM port_assignments
 		WHERE port BETWEEN $1 AND $2 AND protocol = $3
-		AND is_reserved = true
 		ORDER BY port`
 
 	rows, err := tx.QueryContext(ctx, query, startPort, endPort, protocol)

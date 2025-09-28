@@ -85,6 +85,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: ${{ env.DOCKERLIKE_RELEASE_NAME }}
-          notes: ${{ env.COMMITS }}
           tag_name: ${{ env.NEW_VERSION }}
           body_path: release_notes.md
