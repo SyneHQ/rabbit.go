@@ -319,14 +319,15 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	log.Printf("🎯 Tunnel created: %s (team:%s, local:%s -> remote:%s)",
 		tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
 
-	// Keep connection alive and handle tunnel traffic
-	// Listen for DISCONNECT message from client
+	// Start handling tunnel connections
 	go tunnel.handleTunnel()
 
+	// Monitor control connection
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
+			s.stopTunnel(tunnel)
 			break
 		}
 		line = strings.TrimSpace(line)
@@ -396,6 +397,7 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToke
 	// If there's an existing client, close it gracefully
 	s.mu.Lock()
 	oldClient := tunnel.Client
+	wasRestored := (oldClient == nil) // Check if this was a restored tunnel without a client
 	if oldClient != nil {
 		log.Printf("🔄 Closing existing client connection for tunnel %s", tunnel.ID)
 		oldClient.Close()
@@ -428,8 +430,40 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToke
 		}
 	}
 
-	// Start normal tunnel operations
-	tunnel.handleTunnel()
+	// For restored tunnels, acceptRestoredConnections is already handling incoming connections
+	// and will now forward them through the newly connected client.
+	// For tunnels with existing clients, start normal tunnel monitoring
+	if !wasRestored {
+		// Start normal tunnel operations (monitor control connection)
+		go s.monitorControlConnection(tunnel, conn)
+	} else {
+		// For restored tunnels, just monitor the control connection
+		// acceptRestoredConnections is already running and will handle forwarding
+		go s.monitorControlConnection(tunnel, conn)
+	}
+}
+
+// monitorControlConnection monitors the control connection for disconnect messages
+func (s *Server) monitorControlConnection(tunnel *Tunnel, conn net.Conn) {
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
+			// Mark client as disconnected but keep tunnel alive for restoration
+			s.mu.Lock()
+			tunnel.Client = nil
+			s.mu.Unlock()
+			log.Printf("🔌 Client disconnected from tunnel %s, keeping port alive for reconnection", tunnel.ID)
+			return
+		}
+		line = strings.TrimSpace(line)
+		if line == "DISCONNECT" {
+			log.Printf("🚪 Client requested disconnect for tunnel %s", tunnel.ID)
+			s.stopTunnel(tunnel)
+			return
+		}
+	}
 }
 
 // handleDataConnection handles a data connection from a client
@@ -959,7 +993,7 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 }
 
 // acceptRestoredConnections handles connections for restored tunnel listeners
-func (t *Tunnel) acceptRestoredConnections(_ *Server) {
+func (t *Tunnel) acceptRestoredConnections(s *Server) {
 	defer t.wg.Done()
 
 	log.Printf("🎧 Restored port %s listening for external connections (waiting for client reconnection)", t.RemotePort)
@@ -978,46 +1012,51 @@ func (t *Tunnel) acceptRestoredConnections(_ *Server) {
 			}
 
 			// Apply security validation for external connections to restored ports
-			server := getServerFromTunnel(t)
-			if server != nil && server.securityMiddleware != nil {
-				if err := server.securityMiddleware.ValidateConnection(conn); err != nil {
+			if s != nil && s.securityMiddleware != nil {
+				if err := s.securityMiddleware.ValidateConnection(conn); err != nil {
 					log.Printf("🚫 External connection rejected for restored port %s from %s: %v", t.RemotePort, conn.RemoteAddr(), err)
 					conn.Close()
 					continue
 				}
 				// Wrap with security features
-				conn = server.securityMiddleware.WrapConnection(conn)
+				conn = s.securityMiddleware.WrapConnection(conn)
 			}
 
-			// For restored tunnels without clients, just send helpful message
+			// For restored tunnels without clients, check if client is now connected
 			clientAddr := conn.RemoteAddr().(*net.TCPAddr)
 			log.Printf("🌐 External connection attempt to restored port %s from %s:%d",
 				t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
 
+			// Check if the tunnel now has an active client
+			t.wg.Add(1)
 			go func(c net.Conn) {
+				defer t.wg.Done()
 				defer c.Close()
-				t.sendRestoredPortMessage(c)
 
-				// Log the external connection attempt
-				t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "closed",
-					"External connection to restored port - waiting for tunnel client reconnection")
+				// Check if client is available (with a short wait)
+				maxWaitTime := 2 * time.Second
+				checkInterval := 100 * time.Millisecond
+				waited := time.Duration(0)
+
+				for waited < maxWaitTime {
+					if t.Client != nil {
+						// Client is now connected, handle this connection normally
+						log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
+						t.handleConnection(c)
+						return
+					}
+					time.Sleep(checkInterval)
+					waited += checkInterval
+				}
+
+				// Client still not available, close connection gracefully
+				log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
+					t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
+
+				// Log the connection attempt
+				t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "error",
+					"Tunnel client not connected")
 			}(conn)
 		}
 	}
-}
-
-// sendRestoredPortMessage sends a helpful message to connections on restored ports
-func (t *Tunnel) sendRestoredPortMessage(conn net.Conn) {
-	message := fmt.Sprintf(`HTTP/1.1 503 Service Unavailable
-Content-Type: text/plain
-Content-Length: 200
-Connection: close
-
-Port %s was restored from database after server restart.
-The tunnel client is not currently connected.
-Please reconnect your tunnel client to restore full functionality.
-
-To reconnect: Use the same token and connect to the tunnel server.`, t.RemotePort)
-
-	conn.Write([]byte(message))
 }
