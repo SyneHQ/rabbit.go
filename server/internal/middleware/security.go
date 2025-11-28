@@ -36,16 +36,21 @@ type SecurityConfig struct {
 func DefaultSecurityConfig() SecurityConfig {
 	return SecurityConfig{
 		MaxConnectionsPerIP:   10,
-		MaxConnectionsPerHour: 100,
+		MaxConnectionsPerHour: 1000,
 		ConnectionWindow:      time.Hour,
-		MaxGlobalConnections:  1000,
-		BurstThreshold:        20,
+		MaxGlobalConnections:  5000,
+		BurstThreshold:        100,
 		BurstWindow:           time.Minute,
-		HandshakeTimeout:      30 * time.Second,
-		IdleTimeout:           5 * time.Minute,
+		HandshakeTimeout:      60 * time.Second,
+		IdleTimeout:           30 * time.Minute,
 		BlacklistDuration:     time.Hour,
-		MaxViolationsPerHour:  5,
-		TrustedNetworks:       []string{"172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"},
+		MaxViolationsPerHour:  10,
+		TrustedNetworks: []string{
+			"172.16.0.0/12",
+			"10.0.0.0/8",
+			"192.168.0.0/16",
+			"103.108.0.0/16",
+		},
 	}
 }
 
