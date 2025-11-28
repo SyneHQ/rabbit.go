@@ -39,7 +39,7 @@ func DefaultSecurityConfig() SecurityConfig {
 		MaxConnectionsPerHour: 1000,
 		ConnectionWindow:      time.Hour,
 		MaxGlobalConnections:  5000,
-		BurstThreshold:        100,
+		BurstThreshold:        1000,
 		BurstWindow:           time.Minute,
 		HandshakeTimeout:      60 * time.Second,
 		IdleTimeout:           30 * time.Minute,
