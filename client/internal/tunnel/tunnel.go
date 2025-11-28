@@ -135,15 +135,26 @@ func (t *Tunnel) handleConnections() {
 				defer remote.Close()
 
 				// Copy data bidirectionally
-				t.wg.Add(2)
+				done := make(chan struct{}, 2)
 				go func() {
-					defer t.wg.Done()
 					io.Copy(local, remote)
+					// Close write side to signal EOF
+					if conn, ok := local.(*net.TCPConn); ok {
+						conn.CloseWrite()
+					}
+					done <- struct{}{}
 				}()
 				go func() {
-					defer t.wg.Done()
 					io.Copy(remote, local)
+					// Close write side to signal EOF
+					if sshConn, ok := remote.(interface{ CloseWrite() error }); ok {
+						sshConn.CloseWrite()
+					}
+					done <- struct{}{}
 				}()
+				// Wait for both directions to complete
+				<-done
+				<-done
 			}()
 		}
 	}

@@ -759,9 +759,13 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 		defer func() { done <- struct{}{} }()
 		n, err := io.Copy(conn1, conn2)
 		bytesReceived = n
-		if err != nil && err != io.EOF {
+		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
 			bridgeErr = err
 			log.Printf("Error copying to conn1: %v", err)
+		}
+		// Close write side to signal EOF
+		if conn, ok := conn1.(*net.TCPConn); ok {
+			conn.CloseWrite()
 		}
 	}()
 
@@ -769,15 +773,20 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 		defer func() { done <- struct{}{} }()
 		n, err := io.Copy(conn2, conn1)
 		bytesSent = n
-		if err != nil && err != io.EOF {
+		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
 			if bridgeErr == nil {
 				bridgeErr = err
 			}
 			log.Printf("Error copying to conn2: %v", err)
 		}
+		// Close write side to signal EOF
+		if conn, ok := conn2.(*net.TCPConn); ok {
+			conn.CloseWrite()
+		}
 	}()
 
-	// Wait for one direction to finish
+	// Wait for BOTH directions to finish
+	<-done
 	<-done
 	duration := time.Since(startTime)
 

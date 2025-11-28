@@ -15,7 +15,6 @@ import (
 type TunnelClient struct {
 	Config         TunnelClientConfig
 	controlConn    net.Conn
-	localConn      net.Conn
 	wg             sync.WaitGroup
 	stopSignal     chan struct{}
 	tunnelID       string
@@ -385,8 +384,12 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 		defer func() { done <- struct{}{} }()
 		n, err := io.Copy(dataConn, localConn)
 		bytesToServer = n
-		if err != nil && err != io.EOF {
+		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
 			fmt.Printf("⚠️ Error copying local→server: %v\n", err)
+		}
+		// Close write side to signal EOF to the remote
+		if conn, ok := dataConn.(*net.TCPConn); ok {
+			conn.CloseWrite()
 		}
 	}()
 
@@ -394,12 +397,17 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 		defer func() { done <- struct{}{} }()
 		n, err := io.Copy(localConn, dataConn)
 		bytesToLocal = n
-		if err != nil && err != io.EOF {
+		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
 			fmt.Printf("⚠️ Error copying server→local: %v\n", err)
+		}
+		// Close write side to signal EOF to the local service
+		if conn, ok := localConn.(*net.TCPConn); ok {
+			conn.CloseWrite()
 		}
 	}()
 
-	// Wait for one direction to finish
+	// Wait for BOTH directions to finish
+	<-done
 	<-done
 	fmt.Printf("✅ Connection %s finished (↑%d ↓%d bytes)\n", connID, bytesToServer, bytesToLocal)
 }
