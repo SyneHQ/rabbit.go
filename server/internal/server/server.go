@@ -1027,36 +1027,38 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 			log.Printf("🌐 External connection attempt to restored port %s from %s:%d",
 				t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
 
-			// Check if the tunnel now has an active client
-			t.wg.Add(1)
-			go func(c net.Conn) {
-				defer t.wg.Done()
-				defer c.Close()
+		// Check if the tunnel now has an active client
+		t.wg.Add(1)
+		go func(c net.Conn) {
+			// Check if client is available (with a short wait)
+			maxWaitTime := 2 * time.Second
+			checkInterval := 100 * time.Millisecond
+			waited := time.Duration(0)
 
-				// Check if client is available (with a short wait)
-				maxWaitTime := 2 * time.Second
-				checkInterval := 100 * time.Millisecond
-				waited := time.Duration(0)
-
-				for waited < maxWaitTime {
-					if t.Client != nil {
-						// Client is now connected, handle this connection normally
-						log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
-						t.handleConnection(c)
-						return
-					}
-					time.Sleep(checkInterval)
-					waited += checkInterval
+			for waited < maxWaitTime {
+				if t.Client != nil {
+					// Client is now connected, handle this connection normally
+					log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
+					t.handleConnection(c)
+					// handleConnection will call t.wg.Done() and close the connection
+					return
 				}
+				time.Sleep(checkInterval)
+				waited += checkInterval
+			}
 
-				// Client still not available, close connection gracefully
-				log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
-					t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
+			// Client still not available, close connection gracefully
+			// We need to call Done() and Close() here since handleConnection was not called
+			defer t.wg.Done()
+			defer c.Close()
+			
+			log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
+				t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
 
-				// Log the connection attempt
-				t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "error",
-					"Tunnel client not connected")
-			}(conn)
+			// Log the connection attempt
+			t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "error",
+				"Tunnel client not connected")
+		}(conn)
 		}
 	}
 }
