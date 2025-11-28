@@ -322,20 +322,53 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	// Start handling tunnel connections
 	go tunnel.handleTunnel()
 
-	// Monitor control connection
+	// Monitor control connection - but don't kill tunnel on errors
+	// Tunnels should only die on explicit DISCONNECT, not on idle timeouts
 	for {
+		// Set a read deadline to prevent indefinite blocking
+		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		line, err := reader.ReadString('\n')
+
 		if err != nil {
-			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
-			s.stopTunnel(tunnel)
-			break
+			// Check if it's just a timeout (expected for idle connections)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout is normal - client is idle but connected
+				// Log periodically but don't stop tunnel
+				log.Printf("💤 Control connection idle for tunnel %s (tunnel still active)", tunnel.ID)
+				continue
+			}
+
+			// For other errors (connection closed, etc), close control conn but keep tunnel alive
+			log.Printf("⚠️ Control connection lost for tunnel %s: %v (tunnel infrastructure remains active for reconnection)", tunnel.ID, err)
+			conn.Close()
+
+			// Mark tunnel client as nil so it can be reconnected
+			s.mu.Lock()
+			if tunnel.Client == conn {
+				tunnel.Client = nil
+				log.Printf("🔄 Tunnel %s ready for client reconnection", tunnel.ID)
+			}
+			s.mu.Unlock()
+			return
 		}
+
+		// Clear deadline after successful read
+		conn.SetReadDeadline(time.Time{})
+
 		line = strings.TrimSpace(line)
-		if line == "DISCONNECT" {
-			log.Printf("🚪 Client requested disconnect for tunnel %s", tunnel.ID)
+		switch line {
+		case "DISCONNECT":
+			log.Printf("🚪 Client explicitly disconnected from tunnel %s", tunnel.ID)
 			s.stopTunnel(tunnel)
-			break
+			return
+		case "PING":
+			// Respond to PING with PONG
+			fmt.Fprintf(conn, "PONG\n")
+		case "KEEPALIVE":
+			// Just acknowledge keepalive, no response needed
+			// This keeps the connection alive and prevents idle timeout
 		}
+		// Ignore other messages
 	}
 }
 
@@ -1027,38 +1060,38 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 			log.Printf("🌐 External connection attempt to restored port %s from %s:%d",
 				t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
 
-		// Check if the tunnel now has an active client
-		t.wg.Add(1)
-		go func(c net.Conn) {
-			// Check if client is available (with a short wait)
-			maxWaitTime := 2 * time.Second
-			checkInterval := 100 * time.Millisecond
-			waited := time.Duration(0)
+			// Check if the tunnel now has an active client
+			t.wg.Add(1)
+			go func(c net.Conn) {
+				// Check if client is available (with a short wait)
+				maxWaitTime := 2 * time.Second
+				checkInterval := 100 * time.Millisecond
+				waited := time.Duration(0)
 
-			for waited < maxWaitTime {
-				if t.Client != nil {
-					// Client is now connected, handle this connection normally
-					log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
-					t.handleConnection(c)
-					// handleConnection will call t.wg.Done() and close the connection
-					return
+				for waited < maxWaitTime {
+					if t.Client != nil {
+						// Client is now connected, handle this connection normally
+						log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
+						t.handleConnection(c)
+						// handleConnection will call t.wg.Done() and close the connection
+						return
+					}
+					time.Sleep(checkInterval)
+					waited += checkInterval
 				}
-				time.Sleep(checkInterval)
-				waited += checkInterval
-			}
 
-			// Client still not available, close connection gracefully
-			// We need to call Done() and Close() here since handleConnection was not called
-			defer t.wg.Done()
-			defer c.Close()
-			
-			log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
-				t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
+				// Client still not available, close connection gracefully
+				// We need to call Done() and Close() here since handleConnection was not called
+				defer t.wg.Done()
+				defer c.Close()
 
-			// Log the connection attempt
-			t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "error",
-				"Tunnel client not connected")
-		}(conn)
+				log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
+					t.RemotePort, clientAddr.IP.String(), clientAddr.Port)
+
+				// Log the connection attempt
+				t.logConnectionAttempt(clientAddr.IP.String(), clientAddr.Port, "error",
+					"Tunnel client not connected")
+			}(conn)
 		}
 	}
 }

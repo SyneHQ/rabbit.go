@@ -258,10 +258,11 @@ func (tc *TunnelClient) isHealthy() bool {
 		return false
 	}
 
-	// Try to write a simple ping (this is a basic health check)
-	// In a more sophisticated implementation, you might have a proper ping/pong protocol
+	// Send KEEPALIVE message to keep connection alive
+	// The server will respond but we don't wait for it here to avoid
+	// conflicts with handleTunnelConnections which is also reading
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	_, err := conn.Write([]byte{}) // Empty write to test connection
+	_, err := fmt.Fprintf(conn, "KEEPALIVE\n")
 	conn.SetWriteDeadline(time.Time{})
 
 	return err == nil
@@ -311,7 +312,7 @@ func (tc *TunnelClient) handleTunnelConnections() {
 		case <-tc.stopSignal:
 			return
 		default:
-			// Read connection request from server
+			// Read messages from server
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if !strings.Contains(err.Error(), "use of closed network connection") {
@@ -342,6 +343,9 @@ func (tc *TunnelClient) handleTunnelConnections() {
 				// Handle this connection in a separate goroutine
 				tc.wg.Add(1)
 				go tc.handleDataConnection(connID)
+			} else if line == "PONG" {
+				// Server keepalive response - connection is healthy
+				// Just ignore it, we already know we're connected
 			}
 		}
 	}
