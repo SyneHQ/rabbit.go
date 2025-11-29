@@ -79,6 +79,7 @@ jobs:
           echo "Generating release notes..."
           python3 scripts/generate-release-notes.py ${{ env.OPENAI_MODEL }}
           echo "Release notes generated"
+      
       - name: Create a Release
         uses: softprops/action-gh-release@v2
         env:
