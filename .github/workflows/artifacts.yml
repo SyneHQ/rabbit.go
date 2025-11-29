@@ -54,15 +54,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get owner lowercase
+        id: get_owner_lowercase
+        run: |
+          echo "OWNER_LOWERCASE=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Build and push docker image
         uses: docker/build-push-action@v5
         env: 
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_NAME: rabbit-client
-          OWNER_LOWERCASE: ${{ github.repository_owner | lower }}
         with:
           context: ./client
-          file: Dockerfile
+          file: ./client/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ OWNER_LOWERCASE }}/${{ IMAGE_NAME }}:latest
+          tags: |
+            ghcr.io/${{ env.OWNER_LOWERCASE }}/${{ env.IMAGE_NAME }}:latest
