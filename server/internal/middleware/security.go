@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,22 +37,17 @@ type SecurityConfig struct {
 // DefaultSecurityConfig returns a default security configuration
 func DefaultSecurityConfig() SecurityConfig {
 	return SecurityConfig{
-		MaxConnectionsPerIP:   10,
-		MaxConnectionsPerHour: 1000,
+		MaxConnectionsPerIP:   100,
+		MaxConnectionsPerHour: 10000,
 		ConnectionWindow:      time.Hour,
-		MaxGlobalConnections:  5000,
-		BurstThreshold:        1000,
+		MaxGlobalConnections:  1000000,
+		BurstThreshold:        10000,
 		BurstWindow:           time.Minute,
 		HandshakeTimeout:      60 * time.Second,
 		IdleTimeout:           30 * time.Minute,
 		BlacklistDuration:     time.Hour,
-		MaxViolationsPerHour:  10,
-		TrustedNetworks: []string{
-			"172.16.0.0/12",
-			"10.0.0.0/8",
-			"192.168.0.0/16",
-			"103.108.0.0/16",
-		},
+		MaxViolationsPerHour:  100,
+		TrustedNetworks:       strings.Split(os.Getenv("TRUSTED_NETWORKS"), ","),
 	}
 }
 
