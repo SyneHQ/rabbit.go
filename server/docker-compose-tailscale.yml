@@ -63,6 +63,9 @@ services:
     volumes:
       - ./Corefile:/Corefile
     restart: unless-stopped
+    networks:
+      rabbit-net:
+        ipv4_address: 172.30.0.3
 
 networks:
   rabbit-net:
