@@ -1,0 +1,18 @@
+.:53 {
+    # Custom records
+    hosts {
+        172.30.0.10 port.tcp.go
+        fallthrough
+    }
+    
+    # Forward everything else to upstream DNS
+    forward . 8.8.8.8 1.1.1.1
+    
+    # Enable logging
+    log
+    
+    # Enable caching
+    cache 30
+    
+    errors
+}

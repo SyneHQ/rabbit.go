@@ -53,6 +53,16 @@ services:
     sysctls:                          # ADD THIS
       - net.ipv4.ip_forward=1        # Enable IP forwarding
       - net.ipv6.conf.all.forwarding=1
+  
+  coredns:
+    image: coredns/coredns:latest
+    container_name: custom-dns
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ./Corefile:/Corefile
+    restart: unless-stopped
 
 networks:
   rabbit-net:
