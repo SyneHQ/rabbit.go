@@ -58,14 +58,14 @@ services:
     image: coredns/coredns:latest
     container_name: custom-dns
     ports:
-      - "5353:53/udp"
-      - "5353:53/tcp"
+      - "5354:53/udp"
+      - "5354:53/tcp"
     volumes:
       - ./Corefile:/Corefile
     restart: unless-stopped
     networks:
       rabbit-net:
-        ipv4_address: 172.30.0.3
+        ipv4_address: 172.30.0.11
 
 networks:
   rabbit-net:
