@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  rabbit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "9999:9999"
+    env_file:
+      - ./.env
+    depends_on:
+      rabbit-migrate:
+        condition: service_completed_successfully
+    networks:
+      rabbit-net:
+        ipv4_address: 172.30.0.10 # fixed IP for rabbit inside bridge
+      dokploy-network:
+
+  rabbit-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: /usr/local/bin/rabbit.go database migrate /usr/local/bin/internal/database/migrations.sql
+    env_file:
+      - ./.env
+    networks:
+      rabbit-net:
+      dokploy-network:
+  
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale-rabbit
+    restart: always
+    hostname: port.tcp.go # Tailscale node name
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./ts-state:/var/lib/tailscale
+    networks:
+      rabbit-net:
+        ipv4_address: 172.30.0.2 # TS router IP in this subnet
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      # advertise the docker bridge subnet to the tailnet
+      - TS_EXTRA_ARGS=--hostname=port.tcp.go --advertise-routes=172.30.0.0/24
+
+networks:
+  rabbit-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  dokploy-network:
+    external: true
