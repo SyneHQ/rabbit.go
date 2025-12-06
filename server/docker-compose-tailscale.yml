@@ -17,6 +17,8 @@ services:
       rabbit-net:
         ipv4_address: 172.30.0.10 # fixed IP for rabbit inside bridge
       dokploy-network:
+        aliases:
+          - port.tcp.go
 
   rabbit-migrate:
     build:
