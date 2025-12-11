@@ -2,6 +2,7 @@
     # Custom records
     hosts {
         172.30.0.10 port.tcp.go
+        apollo-1    0.0.0.0 
         fallthrough
     }
     
