@@ -27,11 +27,9 @@ func NewRepository(db *Database) *Repository {
 // GetTeamByID retrieves a team by ID
 func (r *Repository) GetTeamByID(ctx context.Context, id string) (*Team, error) {
 	team := &Team{}
-	query := fmt.Sprintf(`
-		SELECT id, name, description
-		FROM public."Team" WHERE id = '%s'`, id)
+	query := `SELECT id, name, COALESCE(description, '') FROM public."Team" WHERE id = $1 AND deleted = false`
 
-	rows, err := r.db.DB.Query(query)
+	rows, err := r.db.DB.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get team: %w", err)
 	}
@@ -185,7 +183,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 func (r *Repository) findAvailablePortInTx(ctx context.Context, tx *sql.Tx, startPort, endPort int, protocol string) (int, error) {
 	query := `
 		SELECT port FROM port_assignments
-		WHERE port BETWEEN $1 AND $2 AND protocol = $3
+		WHERE port BETWEEN $1 AND $2 AND protocol = $3 AND is_reserved = true
 		ORDER BY port`
 
 	rows, err := tx.QueryContext(ctx, query, startPort, endPort, protocol)
@@ -268,11 +266,11 @@ func (r *Repository) ListTeamsWithTokens(ctx context.Context) ([]TokenRow, error
 		SELECT 
 			t.id, t.name, COALESCE(t.description, '') as description, 
 			COALESCE(t."createdAt", NOW()) as created_at,
-			tt.id, tt.name, tt.token, tt.description, tt.created_at, tt.expires_at, tt.last_used_at,
+			tt.id, tt.name, NULL::text, tt.description, tt.created_at, tt.expires_at, tt.last_used_at,
 			pa.port, pa.protocol
 		FROM public."Team" t
 		LEFT JOIN team_tokens tt ON t.id = tt.team_id AND tt.is_active = true
-		LEFT JOIN port_assignments pa ON tt.id = pa.token_id
+		LEFT JOIN port_assignments pa ON tt.id = pa.token_id AND pa.is_reserved = true
 		WHERE t.deleted = false
 		ORDER BY t.name, tt.created_at
 	`
@@ -723,37 +721,40 @@ func (r *Repository) MarkStaleSessionsInactive(ctx context.Context, staleThresho
 	return int(rowsAffected), nil
 }
 
-// delete a token for a team
+// DeleteTokenForTeam atomically revokes a token and releases its port, retaining audit rows.
 func (r *Repository) DeleteTokenForTeam(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
-	query := `UPDATE team_tokens SET is_active = false WHERE team_id = $1 AND id = $2`
-	_, err := r.db.DB.ExecContext(ctx, query, teamID, tokenID)
+	tx, err := r.db.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete token: %w", err)
+		return nil, err
 	}
-	portAssignment, err := r.DeletePortAssignmentForToken(ctx, teamID, tokenID)
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE team_tokens SET is_active = false WHERE team_id = $1 AND id = $2 AND is_active = true`, teamID, tokenID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete port assignment: %w", err)
+		return nil, fmt.Errorf("failed to revoke token: %w", err)
 	}
-	return portAssignment, nil
-}
-
-// delete a port assignment for a token
-func (r *Repository) DeletePortAssignmentForToken(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
-	query := `UPDATE port_assignments SET is_reserved = false WHERE team_id = $1 AND token_id = $2`
-	portAssignment := &PortAssignment{}
-	err := r.db.DB.QueryRowContext(ctx, query, teamID, tokenID).Scan(
-		&portAssignment.ID, &portAssignment.TeamID, &portAssignment.TokenID, &portAssignment.Port,
-		&portAssignment.Protocol, &portAssignment.IsReserved, &portAssignment.CreatedAt, &portAssignment.UpdatedAt,
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected != 1 {
+		return nil, sql.ErrNoRows
+	}
+	assignment := &PortAssignment{}
+	err = tx.QueryRowContext(ctx, `UPDATE port_assignments SET is_reserved = false WHERE team_id = $1 AND token_id = $2 AND is_reserved = true RETURNING id, team_id, token_id, port, protocol, is_reserved, created_at, updated_at`, teamID, tokenID).Scan(
+		&assignment.ID, &assignment.TeamID, &assignment.TokenID, &assignment.Port,
+		&assignment.Protocol, &assignment.IsReserved, &assignment.CreatedAt, &assignment.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to release port: %w", err)
 	}
-
-	// now delete the port assignment
-	query = `DELETE FROM port_assignments WHERE team_id = $1 AND token_id = $2 CASCADE`
-	_, err = r.db.DB.ExecContext(ctx, query, teamID, tokenID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete port assignment: %w", err)
+	if _, err := tx.ExecContext(ctx, `UPDATE connection_sessions SET status = 'inactive' WHERE team_id = $1 AND token_id = $2 AND status = 'active'`, teamID, tokenID); err != nil {
+		return nil, err
 	}
-	return portAssignment, nil
+	if _, err := tx.ExecContext(ctx, `UPDATE connection_logs SET status = 'closed', ended_at = NOW() WHERE team_id = $1 AND token_id = $2 AND status = 'active'`, teamID, tokenID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return assignment, nil
 }

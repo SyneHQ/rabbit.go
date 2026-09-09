@@ -14,6 +14,9 @@ import (
 
 var (
 	serverAddress        string
+	caFile               string
+	serverName           string
+	insecureLocal        bool
 	localPort            string
 	token                string
 	maxReconnectAttempts int
@@ -51,7 +54,10 @@ Warning: excessive tunneling may result in finding Wonderland. Proceed with curi
 	// Tunnel connection flags
 	tunnelCmd.Flags().StringVar(&serverAddress, "server", "rabbit.synehq.com", "Tunnel server address (host:port)")
 	tunnelCmd.Flags().StringVar(&localPort, "local-port", "5432", "Local port to tunnel")
-	tunnelCmd.Flags().StringVar(&token, "token", "default", "Authentication token")
+	tunnelCmd.Flags().StringVar(&token, "token", os.Getenv("RABBIT_TOKEN"), "Authentication token (or RABBIT_TOKEN environment variable)")
+	tunnelCmd.Flags().StringVar(&caFile, "ca-file", "", "Optional PEM certificate authority for the tunnel server")
+	tunnelCmd.Flags().StringVar(&serverName, "server-name", "", "Expected TLS server hostname (defaults to server address)")
+	tunnelCmd.Flags().BoolVar(&insecureLocal, "insecure-local", false, "Allow plaintext to a literal loopback address for local development only")
 
 	// Reconnection configuration flags
 	tunnelCmd.Flags().IntVar(&maxReconnectAttempts, "max-retries", 10, "Maximum reconnection attempts (0 = infinite)")
@@ -70,6 +76,9 @@ func runTunnel(cmd *cobra.Command, args []string) error {
 	// Create tunnel client configuration
 	config := tunnel.TunnelClientConfig{
 		ServerAddress:        serverAddress,
+		CAFile:               caFile,
+		ServerName:           serverName,
+		InsecureLocal:        insecureLocal,
 		LocalPort:            localPort,
 		Token:                token,
 		MaxReconnectAttempts: maxReconnectAttempts,

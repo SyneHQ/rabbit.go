@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"rabbit.go/internal/secrets"
 )
 
 var (
@@ -19,6 +20,9 @@ func SetVersion(v string) {
 }
 
 func Execute() error {
+	if err := secrets.Load(); err != nil {
+		return err
+	}
 	return rootCmd.Execute()
 }
 

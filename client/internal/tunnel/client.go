@@ -28,6 +28,9 @@ type TunnelClient struct {
 // TunnelClientConfig holds configuration for our custom tunnel client
 type TunnelClientConfig struct {
 	ServerAddress        string
+	CAFile               string
+	ServerName           string
+	InsecureLocal        bool
 	LocalPort            string
 	Token                string
 	MaxReconnectAttempts int           // Maximum number of reconnection attempts (0 = infinite)
@@ -39,8 +42,11 @@ type TunnelClientConfig struct {
 
 // NewTunnelClient creates a new tunnel client instance
 func NewTunnelClient(config TunnelClientConfig) (*TunnelClient, error) {
-	if config.Token == "" {
-		config.Token = "default"
+	if config.Token == "" || config.Token == "default" || strings.ContainsAny(config.Token, "\r\n") {
+		return nil, fmt.Errorf("a valid tunnel token is required")
+	}
+	if config.ServerAddress == "" {
+		return nil, fmt.Errorf("server address is required")
 	}
 
 	// Set default values for reconnection parameters
@@ -154,11 +160,7 @@ func (tc *TunnelClient) connectionManager() {
 // connect establishes a connection to the tunnel server
 func (tc *TunnelClient) connect() error {
 	// Connect to tunnel server with timeout
-	dialer := &net.Dialer{
-		Timeout: tc.Config.ConnectionTimeout,
-	}
-
-	conn, err := dialer.Dial("tcp", tc.Config.ServerAddress)
+	conn, err := tc.dialServer()
 	if err != nil {
 		return fmt.Errorf("error connecting to tunnel server: %v", err)
 	}
@@ -356,11 +358,7 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 	defer tc.wg.Done()
 
 	// Establish a new connection to the server for data transfer
-	dialer := &net.Dialer{
-		Timeout: tc.Config.ConnectionTimeout,
-	}
-
-	dataConn, err := dialer.Dial("tcp", tc.Config.ServerAddress)
+	dataConn, err := tc.dialServer()
 	if err != nil {
 		fmt.Printf("❌ Error connecting for data transfer: %v\n", err)
 		return
@@ -380,6 +378,17 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 
 	fmt.Printf("🌉 Bridging connection %s\n", connID)
 
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-tc.stopSignal:
+			dataConn.Close()
+			localConn.Close()
+		case <-finished:
+		}
+	}()
+
 	// Copy data bidirectionally between local service and data connection
 	done := make(chan struct{}, 2)
 	var bytesToServer, bytesToLocal int64
@@ -392,7 +401,7 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 			fmt.Printf("⚠️ Error copying local→server: %v\n", err)
 		}
 		// Close write side to signal EOF to the remote
-		if conn, ok := dataConn.(*net.TCPConn); ok {
+		if conn, ok := dataConn.(interface{ CloseWrite() error }); ok {
 			conn.CloseWrite()
 		}
 	}()
@@ -405,7 +414,7 @@ func (tc *TunnelClient) handleDataConnection(connID string) {
 			fmt.Printf("⚠️ Error copying server→local: %v\n", err)
 		}
 		// Close write side to signal EOF to the local service
-		if conn, ok := localConn.(*net.TCPConn); ok {
+		if conn, ok := localConn.(interface{ CloseWrite() error }); ok {
 			conn.CloseWrite()
 		}
 	}()

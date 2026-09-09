@@ -64,6 +64,7 @@ type Tunnel struct {
 	CreatedAt    time.Time
 	stopChan     chan struct{}
 	stopOnce     sync.Once // Ensure stopChan is only closed once
+	controlMu    sync.Mutex
 	wg           sync.WaitGroup
 
 	// Database tracking
@@ -121,6 +122,7 @@ func NewServer(config Config) (*Server, error) {
 	// Create API server if port is specified
 	if config.APIPort != "" {
 		server.apiServer = NewAPIServer(dbService, config.BindAddress, config.APIPort, config.ControlPort)
+		server.apiServer.onRevoke = server.revokeToken
 	}
 
 	return server, nil
@@ -137,7 +139,7 @@ func (s *Server) Start() error {
 	globalServer = s
 
 	var err error
-	s.controlListener, err = net.Listen("tcp", net.JoinHostPort(s.config.BindAddress, s.config.ControlPort))
+	s.controlListener, err = controlListener(net.JoinHostPort(s.config.BindAddress, s.config.ControlPort))
 	if err != nil {
 		return fmt.Errorf("error starting control listener: %v", err)
 	}
@@ -189,11 +191,15 @@ func (s *Server) Stop() error {
 	}
 
 	// Stop all tunnels
-	s.mu.Lock()
+	s.mu.RLock()
+	tunnels := make([]*Tunnel, 0, len(s.tunnels))
 	for _, tunnel := range s.tunnels {
+		tunnels = append(tunnels, tunnel)
+	}
+	s.mu.RUnlock()
+	for _, tunnel := range tunnels {
 		s.stopTunnel(tunnel)
 	}
-	s.mu.Unlock()
 
 	s.wg.Wait()
 	return nil
@@ -236,13 +242,14 @@ func (s *Server) handleControlConnections() {
 func (s *Server) handleControlConnection(conn net.Conn) {
 	defer s.wg.Done()
 
-	log.Printf("🔗 New control connection from %s", conn.RemoteAddr())
+	log.Printf("New control connection from %s", conn.RemoteAddr())
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	// Simple protocol: read token and local port on separate lines
 	reader := bufio.NewReader(conn)
 
 	// Read first line to determine connection type
-	firstLine, err := reader.ReadString('\n')
+	firstLine, err := readControlLine(reader)
 	if err != nil {
 		log.Printf("Error reading first line: %v", err)
 		conn.Close()
@@ -252,13 +259,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 
 	// Handle data connections
 	if strings.HasPrefix(firstLine, "DATA:") {
-		s.handleDataConnection(conn, firstLine)
-		return
-	}
-
-	// Handle delete port commands from API
-	if strings.HasPrefix(firstLine, "delete_port_") {
-		s.handleDeletePortCommand(conn, firstLine)
+		s.handleDataConnection(&bufferedConnection{Conn: conn, reader: reader}, firstLine)
 		return
 	}
 
@@ -266,7 +267,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	token := firstLine
 
 	// Read local port
-	localPort, err := reader.ReadString('\n')
+	localPort, err := readControlLine(reader)
 	if err != nil {
 		log.Printf("Error reading local port: %v", err)
 		conn.Close()
@@ -285,7 +286,8 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 		return
 	}
 
-	log.Printf("✅ Token authenticated for team: %s", teamToken.Team.Name)
+	_ = conn.SetReadDeadline(time.Time{})
+	log.Printf("Token authenticated for team: %s", teamToken.Team.Name)
 	log.Printf("📍 Assigned port: %d", portAssignment.Port)
 
 	// Check if there's already a tunnel for this port/token (restored or active)
@@ -319,15 +321,12 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	log.Printf("🎯 Tunnel created: %s (team:%s, local:%s -> remote:%s)",
 		tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
 
-	// Start handling tunnel connections
-	go tunnel.handleTunnel()
-
 	// Monitor control connection - but don't kill tunnel on errors
 	// Tunnels should only die on explicit DISCONNECT, not on idle timeouts
 	for {
 		// Set a read deadline to prevent indefinite blocking
 		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
-		line, err := reader.ReadString('\n')
+		line, err := readControlLine(reader)
 
 		if err != nil {
 			// Check if it's just a timeout (expected for idle connections)
@@ -372,46 +371,18 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	}
 }
 
-// handleDeletePortCommand handles delete port commands from the API
-func (s *Server) handleDeletePortCommand(conn net.Conn, commandLine string) {
-	defer conn.Close()
-
-	// Parse the command: delete_port_PORT
-	parts := strings.Split(commandLine, "_")
-	if len(parts) < 3 {
-		log.Printf("Invalid delete port command format: %s", commandLine)
-		return
-	}
-
-	portStr := parts[2]
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		log.Printf("Invalid port in delete command: %s", portStr)
-		return
-	}
-
-	log.Printf("🗑️ Received delete port command for port %d", port)
-
-	// Find and stop any tunnels using this port
-	s.mu.Lock()
-	var tunnelsToStop []*Tunnel
+// revokeToken is reachable only after the HTTP API authorizes and revokes the exact team token.
+func (s *Server) revokeToken(teamID, tokenID string) {
+	s.mu.RLock()
+	var targets []*Tunnel
 	for _, tunnel := range s.tunnels {
-		if tunnel.RemotePort == portStr {
-			tunnelsToStop = append(tunnelsToStop, tunnel)
+		if tunnel.TeamID == teamID && tunnel.TokenID == tokenID {
+			targets = append(targets, tunnel)
 		}
 	}
-	s.mu.Unlock()
-
-	// Stop the tunnels
-	for _, tunnel := range tunnelsToStop {
-		log.Printf("🛑 Stopping tunnel %s on port %d due to token deletion", tunnel.ID, port)
+	s.mu.RUnlock()
+	for _, tunnel := range targets {
 		s.stopTunnel(tunnel)
-	}
-
-	if len(tunnelsToStop) > 0 {
-		log.Printf("✅ Stopped %d tunnel(s) on port %d", len(tunnelsToStop), port)
-	} else {
-		log.Printf("ℹ️ No active tunnels found on port %d", port)
 	}
 }
 
@@ -429,6 +400,13 @@ func (s *Server) findTunnelByTokenAndPort(token string, port int) *Tunnel {
 func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToken *database.TeamToken, _ *database.PortAssignment, localPort string) {
 	// If there's an existing client, close it gracefully
 	s.mu.Lock()
+	select {
+	case <-tunnel.stopChan:
+		s.mu.Unlock()
+		conn.Close()
+		return
+	default:
+	}
 	oldClient := tunnel.Client
 	wasRestored := (oldClient == nil) // Check if this was a restored tunnel without a client
 	if oldClient != nil {
@@ -480,12 +458,14 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToke
 func (s *Server) monitorControlConnection(tunnel *Tunnel, conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := readControlLine(reader)
 		if err != nil {
 			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
 			// Mark client as disconnected but keep tunnel alive for restoration
 			s.mu.Lock()
-			tunnel.Client = nil
+			if tunnel.Client == conn {
+				tunnel.Client = nil
+			}
 			s.mu.Unlock()
 			log.Printf("🔌 Client disconnected from tunnel %s, keeping port alive for reconnection", tunnel.ID)
 			return
@@ -510,25 +490,26 @@ func (s *Server) handleDataConnection(conn net.Conn, dataLine string) {
 	}
 
 	connID := parts[1]
-	log.Printf("📥 Received data connection for %s", connID)
 
 	// Find the pending connection
 	s.mu.Lock()
 	connChan, exists := s.pendingConns[connID]
 	if !exists {
 		s.mu.Unlock()
-		log.Printf("❌ No pending connection found for %s", connID)
+		log.Printf("No pending data connection")
 		conn.Close()
 		return
 	}
-	s.mu.Unlock()
+	delete(s.pendingConns, connID)
+	defer s.mu.Unlock()
 
+	_ = conn.SetReadDeadline(time.Time{})
 	// Send the connection to the waiting handler
 	select {
 	case connChan <- conn:
-		log.Printf("✅ Data connection paired for %s", connID)
+		log.Printf("Data connection paired")
 	default:
-		log.Printf("❌ Failed to pair data connection for %s", connID)
+		log.Printf("Failed to pair data connection")
 		conn.Close()
 	}
 }
@@ -584,10 +565,20 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 		log.Printf("📊 Database session created: %s", session.ID)
 	}
 
+	// Register the listener goroutine before publishing the tunnel to revocation.
+	tunnel.wg.Add(1)
 	// Add to tunnels map
 	s.mu.Lock()
 	s.tunnels[tunnelID] = tunnel
 	s.mu.Unlock()
+
+	go tunnel.handleTunnel()
+	// Publication precedes the final check, so concurrent API revocation either
+	// observes this tunnel or this query observes the revoked token.
+	if _, _, err := s.authenticateToken(ctx, teamToken.Token); err != nil {
+		s.stopTunnel(tunnel)
+		return nil, fmt.Errorf("token revoked during tunnel creation")
+	}
 
 	return tunnel, nil
 }
@@ -602,10 +593,7 @@ func (t *Tunnel) handleTunnel() {
 		t.stopOnce.Do(func() { close(t.stopChan) })
 	}()
 
-	defer t.Client.Close()
 	defer t.Listener.Close()
-
-	t.wg.Add(1)
 	go t.acceptConnections()
 
 	// Wait for stop signal or client disconnection
@@ -674,39 +662,38 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 
 	log.Printf("🔌 New connection to tunnel %s from %s:%d", t.ID, clientIP, clientPort)
 
-	// Send connect notification to client via control connection
-	_, err := fmt.Fprintf(t.Client, "CONNECT\n")
-	if err != nil {
-		log.Printf("Error sending connect notification: %v", err)
-		// Log failed connection attempt
-		t.logConnectionAttempt(clientIP, clientPort, "error", fmt.Sprintf("Control connection error: %v", err))
-		return
-	}
-
-	// Wait for client to establish data connection
 	s := getServerFromTunnel(t)
 	if s == nil {
-		log.Printf("Could not get server reference")
-		t.logConnectionAttempt(clientIP, clientPort, "error", "No server reference available")
 		return
 	}
-
-	// Create a channel for this specific connection
+	s.mu.RLock()
+	client := t.Client
+	s.mu.RUnlock()
+	if client == nil {
+		return
+	}
 	connChan := make(chan net.Conn, 1)
-	connID := fmt.Sprintf("%s-%d", t.ID, time.Now().UnixNano())
-
+	connID, err := generateTunnelID()
+	if err != nil {
+		return
+	}
 	s.mu.Lock()
 	s.pendingConns[connID] = connChan
 	s.mu.Unlock()
-
-	// Send the connection ID to the client
-	_, err = fmt.Fprintf(t.Client, "CONN_ID:%s\n", connID)
-	if err != nil {
-		log.Printf("Error sending connection ID: %v", err)
+	defer func() {
 		s.mu.Lock()
 		delete(s.pendingConns, connID)
+		select {
+		case unused := <-connChan:
+			unused.Close()
+		default:
+		}
 		s.mu.Unlock()
-		t.logConnectionAttempt(clientIP, clientPort, "error", fmt.Sprintf("Connection ID send error: %v", err))
+	}()
+	t.controlMu.Lock()
+	_, err = fmt.Fprintf(client, "CONNECT\nCONN_ID:%s\n", connID)
+	t.controlMu.Unlock()
+	if err != nil {
 		return
 	}
 
@@ -718,7 +705,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		delete(s.pendingConns, connID)
 		s.mu.Unlock()
 
-		log.Printf("🔄 Data connection established for %s", connID)
+		log.Printf("Data connection established")
 
 		// Create a connection log entry for this specific connection
 		connectionLogID := t.createConnectionLog(clientIP, clientPort)
@@ -726,8 +713,10 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		// Bridge the connections and track statistics
 		t.bridgeConnectionsWithLogging(externalConn, dataConn, connectionLogID)
 
+	case <-t.stopChan:
+		return
 	case <-time.After(10 * time.Second):
-		log.Printf("⏰ Timeout waiting for data connection for %s", connID)
+		log.Printf("Timeout waiting for data connection")
 		s.mu.Lock()
 		delete(s.pendingConns, connID)
 		s.mu.Unlock()
@@ -815,46 +804,48 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 	defer conn2.Close()
 
 	startTime := time.Now()
-	done := make(chan struct{}, 2)
+	type copyResult struct {
+		received bool
+		bytes    int64
+		err      error
+	}
+	results := make(chan copyResult, 2)
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-t.stopChan:
+			conn1.Close()
+			conn2.Close()
+		case <-finished:
+		}
+	}()
+	copyDirection := func(dst, src net.Conn, received bool) {
+		n, err := io.Copy(dst, src)
+		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
+			dst.Close()
+			src.Close()
+		}
+		if conn, ok := dst.(interface{ CloseWrite() error }); ok {
+			_ = conn.CloseWrite()
+		}
+		results <- copyResult{received, n, err}
+	}
+	go copyDirection(conn1, conn2, true)
+	go copyDirection(conn2, conn1, false)
 	var bytesReceived, bytesSent int64
 	var bridgeErr error
-
-	// Track connection start
-	log.Printf("🌉 Starting bridge for tunnel %s (log: %s)", t.ID, connectionLogID)
-
-	go func() {
-		defer func() { done <- struct{}{} }()
-		n, err := io.Copy(conn1, conn2)
-		bytesReceived = n
-		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
-			bridgeErr = err
-			log.Printf("Error copying to conn1: %v", err)
+	for i := 0; i < 2; i++ {
+		result := <-results
+		if result.received {
+			bytesReceived = result.bytes
+		} else {
+			bytesSent = result.bytes
 		}
-		// Close write side to signal EOF
-		if conn, ok := conn1.(*net.TCPConn); ok {
-			conn.CloseWrite()
+		if result.err != nil && result.err != io.EOF && !strings.Contains(result.err.Error(), "use of closed network connection") {
+			bridgeErr = result.err
 		}
-	}()
-
-	go func() {
-		defer func() { done <- struct{}{} }()
-		n, err := io.Copy(conn2, conn1)
-		bytesSent = n
-		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
-			if bridgeErr == nil {
-				bridgeErr = err
-			}
-			log.Printf("Error copying to conn2: %v", err)
-		}
-		// Close write side to signal EOF
-		if conn, ok := conn2.(*net.TCPConn); ok {
-			conn.CloseWrite()
-		}
-	}()
-
-	// Wait for BOTH directions to finish
-	<-done
-	<-done
+	}
 	duration := time.Since(startTime)
 
 	// Determine final status
@@ -902,19 +893,22 @@ func (s *Server) stopTunnel(tunnel *Tunnel) {
 	if tunnel.Listener != nil {
 		tunnel.Listener.Close()
 	}
-	if tunnel.Client != nil {
-		tunnel.Client.Close()
+	s.mu.Lock()
+	client := tunnel.Client
+	tunnel.Client = nil
+	if s.tunnels[tunnel.ID] == tunnel {
+		delete(s.tunnels, tunnel.ID)
 	}
-
-	// Wait for all tunnel goroutines to finish
+	s.mu.Unlock()
+	if client != nil {
+		client.Close()
+	}
 	tunnel.wg.Wait()
-
-	delete(s.tunnels, tunnel.ID)
 }
 
 // generateTunnelID generates a random tunnel ID
 func generateTunnelID() (string, error) {
-	bytes := make([]byte, 8)
+	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
@@ -1013,13 +1007,14 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 		SessionID:    session.ID.String(),
 	}
 
+	// Register the listener goroutine before publishing the tunnel to revocation.
+	tunnel.wg.Add(1)
 	// Add to tunnels map
 	s.mu.Lock()
 	s.tunnels[tunnelID] = tunnel
 	s.mu.Unlock()
 
 	// Start accepting connections on the restored listener
-	tunnel.wg.Add(1)
 	go tunnel.acceptRestoredConnections(s)
 
 	return nil
@@ -1069,7 +1064,10 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 				waited := time.Duration(0)
 
 				for waited < maxWaitTime {
-					if t.Client != nil {
+					s.mu.RLock()
+					connected := t.Client != nil
+					s.mu.RUnlock()
+					if connected {
 						// Client is now connected, handle this connection normally
 						log.Printf("✅ Client reconnected for restored port %s, handling connection", t.RemotePort)
 						t.handleConnection(c)
@@ -1094,4 +1092,9 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 			}(conn)
 		}
 	}
+}
+
+func readControlLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadSlice('\n')
+	return string(line), err
 }
