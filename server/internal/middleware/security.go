@@ -457,26 +457,74 @@ func (sm *SecurityMiddleware) WrapConnection(conn net.Conn) net.Conn {
 // secureConnection wraps a net.Conn with security features
 type secureConnection struct {
 	net.Conn
-	sm      *SecurityMiddleware
-	created time.Time
+	sm                          *SecurityMiddleware
+	created                     time.Time
+	deadlineMu                  sync.Mutex
+	readDeadline, writeDeadline time.Time
+	closeOnce                   sync.Once
+	closeErr                    error
 }
 
-// Read implements net.Conn with idle timeout
-func (sc *secureConnection) Read(b []byte) (n int, err error) {
-	// Set read deadline for idle timeout
-	sc.SetReadDeadline(time.Now().Add(sc.sm.config.IdleTimeout))
+func (sc *secureConnection) deadline(explicit time.Time) time.Time {
+	idle := time.Now().Add(sc.sm.config.IdleTimeout)
+	if !explicit.IsZero() && explicit.Before(idle) {
+		return explicit
+	}
+	return idle
+}
+
+func (sc *secureConnection) SetReadDeadline(t time.Time) error {
+	sc.deadlineMu.Lock()
+	defer sc.deadlineMu.Unlock()
+	sc.readDeadline = t
+	return sc.Conn.SetReadDeadline(sc.deadline(t))
+}
+
+func (sc *secureConnection) SetWriteDeadline(t time.Time) error {
+	sc.deadlineMu.Lock()
+	defer sc.deadlineMu.Unlock()
+	sc.writeDeadline = t
+	return sc.Conn.SetWriteDeadline(sc.deadline(t))
+}
+
+func (sc *secureConnection) SetDeadline(t time.Time) error {
+	sc.deadlineMu.Lock()
+	defer sc.deadlineMu.Unlock()
+	sc.readDeadline, sc.writeDeadline = t, t
+	return sc.Conn.SetDeadline(sc.deadline(t))
+}
+
+func (sc *secureConnection) Read(b []byte) (int, error) {
+	sc.deadlineMu.Lock()
+	err := sc.Conn.SetReadDeadline(sc.deadline(sc.readDeadline))
+	sc.deadlineMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
 	return sc.Conn.Read(b)
 }
 
-// Write implements net.Conn with idle timeout
-func (sc *secureConnection) Write(b []byte) (n int, err error) {
-	// Set write deadline for idle timeout
-	sc.SetWriteDeadline(time.Now().Add(sc.sm.config.IdleTimeout))
+func (sc *secureConnection) Write(b []byte) (int, error) {
+	sc.deadlineMu.Lock()
+	err := sc.Conn.SetWriteDeadline(sc.deadline(sc.writeDeadline))
+	sc.deadlineMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
 	return sc.Conn.Write(b)
 }
 
-// Close implements net.Conn and records the connection closure
+func (sc *secureConnection) CloseWrite() error {
+	if conn, ok := sc.Conn.(interface{ CloseWrite() error }); ok {
+		return conn.CloseWrite()
+	}
+	return fmt.Errorf("connection does not support half-close")
+}
+
 func (sc *secureConnection) Close() error {
-	sc.sm.RecordConnectionClosed(sc.Conn)
-	return sc.Conn.Close()
+	sc.closeOnce.Do(func() {
+		sc.sm.RecordConnectionClosed(sc.Conn)
+		sc.closeErr = sc.Conn.Close()
+	})
+	return sc.closeErr
 }

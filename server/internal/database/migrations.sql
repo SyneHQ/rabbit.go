@@ -37,9 +37,13 @@ CREATE TABLE IF NOT EXISTS port_assignments (
     is_reserved BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(port, protocol),
     CONSTRAINT valid_protocol CHECK (protocol IN ('tcp', 'udp', 'http', 'https'))
 );
+
+-- Retain released assignments and their audit history while allowing port reuse.
+ALTER TABLE port_assignments DROP CONSTRAINT IF EXISTS port_assignments_port_protocol_key;
+CREATE UNIQUE INDEX IF NOT EXISTS port_assignments_reserved_port_protocol_key
+    ON port_assignments(port, protocol) WHERE is_reserved = true;
 
 -- Connection sessions table (for active connections tracking)
 CREATE TABLE IF NOT EXISTS connection_sessions (

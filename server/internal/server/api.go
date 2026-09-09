@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 type APIServer struct {
 	server    *http.Server
 	dbService *database.Service
+	onRevoke  func(string, string)
 }
 
 // TokenGenerationRequest represents the request body for token generation
@@ -78,7 +78,7 @@ type TeamInfo struct {
 
 // TokenInfo represents token information
 type TokenInfo struct {
-	Token       string     `json:"token"`
+	Token       string     `json:"-"`
 	TokenID     string     `json:"token_id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
@@ -128,6 +128,7 @@ func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 
 	// API routes
 	v1 := router.PathPrefix("/api/v1").Subrouter()
+	v1.Use(api.authorize)
 
 	// Token management
 	v1.HandleFunc("/tokens/generate", api.generateToken).Methods("POST")
@@ -169,8 +170,13 @@ func (api *APIServer) deleteToken(w http.ResponseWriter, r *http.Request, contro
 	vars := mux.Vars(r)
 	teamId := vars["teamId"]
 	tokenId := vars["tokenId"]
-	ctx := context.Background()
-	portAssignment, err := api.dbService.DeleteTunnelForTeam(ctx, teamId, uuid.MustParse(tokenId))
+	ctx := r.Context()
+	parsedID, err := uuid.Parse(tokenId)
+	if err != nil {
+		http.Error(w, "invalid token ID", 400)
+		return
+	}
+	_, err = api.dbService.DeleteTunnelForTeam(ctx, teamId, parsedID)
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, TokenGenerationResponse{
 			Success: false,
@@ -179,16 +185,9 @@ func (api *APIServer) deleteToken(w http.ResponseWriter, r *http.Request, contro
 		return
 	}
 
-	// notify server - dial tcp:
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%s", controlPort))
-	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, TokenGenerationResponse{
-			Success: false,
-			Error:   "failed to notify server",
-		})
+	if api.onRevoke != nil {
+		api.onRevoke(teamId, tokenId)
 	}
-	defer conn.Close()
-	conn.Write([]byte(fmt.Sprintf("delete_port_%s", portAssignment.Port)))
 
 	respondWithJSON(w, http.StatusOK, TokenGenerationResponse{
 		Success: true,
@@ -198,6 +197,7 @@ func (api *APIServer) deleteToken(w http.ResponseWriter, r *http.Request, contro
 
 // generateToken handles POST /api/v1/tokens/generate
 func (api *APIServer) generateToken(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	var req TokenGenerationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondWithJSON(w, http.StatusBadRequest, TokenGenerationResponse{
@@ -207,6 +207,14 @@ func (api *APIServer) generateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.TeamID != r.Header.Get("X-Team-ID") {
+		http.Error(w, "access denied", 403)
+		return
+	}
+	if len(req.Name) > 120 || len(req.Description) > 1000 || req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
+		http.Error(w, "invalid token settings", 400)
+		return
+	}
 	// Validate required fields
 	if req.TeamID == "" {
 		respondWithJSON(w, http.StatusBadRequest, TokenGenerationResponse{
@@ -324,12 +332,12 @@ func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
 			TokenID:     token.ID.String(),
 			Name:        token.Name,
 			Description: token.Description,
-			Token:       token.Token,
-			Port:        portAssignment.Port,
-			Protocol:    portAssignment.Protocol,
-			CreatedAt:   token.CreatedAt,
-			LastUsedAt:  token.LastUsedAt,
-			ExpiresAt:   token.ExpiresAt,
+
+			Port:       portAssignment.Port,
+			Protocol:   portAssignment.Protocol,
+			CreatedAt:  token.CreatedAt,
+			LastUsedAt: token.LastUsedAt,
+			ExpiresAt:  token.ExpiresAt,
 		})
 	}
 
@@ -394,7 +402,7 @@ func (api *APIServer) healthCheck(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"success": false,
 			"status":  "unhealthy",
-			"error":   err.Error(),
+			"error":   "database unavailable",
 		})
 		return
 	}
