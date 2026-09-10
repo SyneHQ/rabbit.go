@@ -13,6 +13,11 @@ services:
     depends_on:
       rabbit-migrate:
         condition: service_completed_successfully
+    environment:
+      RABBIT_TLS_CERT_FILE: /run/rabbit-tls/fullchain.pem
+      RABBIT_TLS_KEY_FILE: /run/rabbit-tls/privkey.pem
+    volumes:
+      - /srv/rabbit/tls:/run/rabbit-tls:ro
     networks:
       rabbit-net:
         ipv4_address: 172.30.0.10 # fixed IP for rabbit inside bridge
