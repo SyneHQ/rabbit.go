@@ -208,11 +208,16 @@ func nativeBinding(scope Scope, code string, kernel any) map[string]any {
 		"notebook": map[string]any{"kind": "chat", "id": "native_chat", "cellId": nil, "revisionSha256": strings.Repeat("b", 64)},
 		"runtime":  map[string]any{"provider": "customer", "id": scope.RuntimeID, "policyRevision": scope.PolicyRevision, "ledgerGeneration": scope.LedgerGeneration, "environmentSha256": scope.EnvironmentSHA256, "kernelGeneration": kernel}, "codeSha256": hex.EncodeToString(codeHash[:]), "inputs": []any{}}
 }
-func nativeCapability(key []byte, binding map[string]any, action string) string {
+func nativeCapability(key []byte, binding map[string]any, action string, retrieval ...map[string]any) string {
 	data, _ := json.Marshal(binding)
 	hash := sha256.Sum256(append([]byte("syne:notebook:execution-binding:v2\n"), data...))
 	runtime := binding["runtime"].(map[string]any)
 	payload := map[string]any{"version": 2, "action": action, "executionId": binding["executionId"], "bindingSha256": hex.EncodeToString(hash[:]), "actorId": binding["actorId"], "teamId": binding["teamId"], "runtimeId": runtime["id"], "provider": runtime["provider"], "policyRevision": runtime["policyRevision"], "ledgerGeneration": runtime["ledgerGeneration"], "environmentSha256": runtime["environmentSha256"], "issuedAt": time.Now().Unix(), "expiresAt": time.Now().Unix() + 120}
+	for _, fields := range retrieval {
+		for name, value := range fields {
+			payload[name] = value
+		}
+	}
 	encoded, _ := json.Marshal(payload)
 	value := base64.RawURLEncoding.EncodeToString(encoded)
 	mac := hmac.New(sha256.New, key)
@@ -308,7 +313,7 @@ func TestRuntimeLauncherNativeTLSIntegration(t *testing.T) {
 		t.Fatal("start did not bootstrap before registration")
 	}
 	bridge := nativeBridge{address: address, roots: pool, scope: scope}
-	code := "import os,time\nassert not any(k in os.environ for k in ['AWS_SECRET_ACCESS_KEY','KOLE_SERVICE_TOKEN','NOTEBOOK_RUNTIME_CAPABILITY_KEY'])\nprint('first',flush=True)\ntime.sleep(3)\nprint('second',flush=True)\n"
+	code := "import os,time\nfrom pathlib import Path\nassert not any(k in os.environ for k in ['AWS_SECRET_ACCESS_KEY','KOLE_SERVICE_TOKEN','NOTEBOOK_RUNTIME_CAPABILITY_KEY'])\nPath('forecast.csv').write_text('period,value\\n2026,42\\n')\nprint('first',flush=True)\ntime.sleep(3)\nprint('second',flush=True)\n"
 	binding := nativeBinding(scope, code, nil)
 	path := "/v2/executions/" + binding["executionId"].(string)
 	token := func(action string) string { return nativeCapability(authority.key, binding, action) }
@@ -361,7 +366,26 @@ func TestRuntimeLauncherNativeTLSIntegration(t *testing.T) {
 	if duplicate["state"] != "terminal" || duplicate["result"].(map[string]any)["execution_count"] != float64(1) {
 		t.Fatal("execution replayed")
 	}
-	cancelCode := "import time\nprint('cancel_started',flush=True)\ntime.sleep(30)\n"
+	snapshotHash := terminal["receipt"].(map[string]any)["snapshotSha256"].(string)
+	snapshotToken := nativeCapability(authority.key, binding, "snapshot", map[string]any{"snapshotSha256": snapshotHash})
+	snapshotPath := path + "/snapshot?snapshotSha256=" + snapshotHash
+	snapshot := bridge.json(t, "GET", snapshotPath, snapshotToken, nil)
+	snapshotBytes, _ := json.Marshal(snapshot["snapshot"])
+	actualHash := sha256.Sum256(snapshotBytes)
+	if hex.EncodeToString(actualHash[:]) != snapshotHash {
+		t.Fatal("immutable snapshot does not match terminal receipt")
+	}
+	fileBytes, err := base64.StdEncoding.DecodeString(snapshot["snapshot"].(map[string]any)["forecast.csv"].(string))
+	if err != nil || string(fileBytes) != "period,value\n2026,42\n" {
+		t.Fatal("receipt-bound forecast artifact changed")
+	}
+	artifactToken := nativeCapability(authority.key, binding, "artifact", map[string]any{"snapshotSha256": snapshotHash, "artifactPath": "forecast.csv"})
+	artifactPath := path + "/artifact?snapshotSha256=" + snapshotHash + "&path=forecast.csv"
+	artifact := bridge.json(t, "GET", artifactPath, artifactToken, nil)
+	if artifact["contentBase64"] != snapshot["snapshot"].(map[string]any)["forecast.csv"] {
+		t.Fatal("artifact differs from its saved snapshot")
+	}
+	cancelCode := "import time\nPath('forecast.csv').write_text('replaced by later execution')\nprint('cancel_started',flush=True)\ntime.sleep(30)\n"
 	cancelBinding := nativeBinding(scope, cancelCode, terminal["kernelGeneration"])
 	cancelPath := "/v2/executions/" + cancelBinding["executionId"].(string)
 	cancelToken := func(action string) string { return nativeCapability(authority.key, cancelBinding, action) }
@@ -393,11 +417,20 @@ func TestRuntimeLauncherNativeTLSIntegration(t *testing.T) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+	oldSnapshot := bridge.json(t, "GET", snapshotPath, snapshotToken, nil)
+	oldSnapshotBytes, _ := json.Marshal(oldSnapshot["snapshot"])
+	if !bytes.Equal(oldSnapshotBytes, snapshotBytes) {
+		t.Fatal("later notebook execution replaced an immutable saved snapshot")
+	}
+	oldArtifact := bridge.json(t, "GET", artifactPath, artifactToken, nil)
+	if oldArtifact["contentBase64"] != artifact["contentBase64"] {
+		t.Fatal("later notebook execution replaced an immutable artifact")
+	}
 	authority.denied.Store(true)
 	if conn, _, err := bridge.open(); err == nil {
 		conn.Close()
 		t.Fatal("revoked runtime remained routable")
 	}
-	t.Log("verified HTTPS enrollment/bootstrap -> Go launcher -> Rabbit TLS -> real native Jupyter: early output, cursor reconnect, no duplicate execution, exact cancel, revocation; credentials absent from kernel environment")
+	t.Log("verified HTTPS enrollment/bootstrap -> Go launcher -> Rabbit TLS -> real native Jupyter: early output, cursor reconnect, no duplicate execution, receipt-bound immutable snapshots/artifacts survive later file mutation, exact cancel, revocation; credentials absent from kernel environment")
 }
 func fmtInt(value int) string { data, _ := json.Marshal(value); return string(data) }
