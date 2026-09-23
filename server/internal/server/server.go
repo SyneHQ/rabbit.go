@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	"rabbit.go/internal/database"
 	"rabbit.go/internal/middleware"
+	notebookruntime "rabbit.go/internal/runtime"
 
 	"github.com/google/uuid"
 )
@@ -47,6 +49,7 @@ type Server struct {
 
 	// Security middleware
 	securityMiddleware *middleware.SecurityMiddleware
+	runtimeRouter      *notebookruntime.Router
 }
 
 // Tunnel represents an active tunnel session
@@ -88,6 +91,27 @@ type TunnelResponse struct {
 
 // NewServer creates a new tunnel server
 func NewServer(config Config) (*Server, error) {
+	var runtimeRouter *notebookruntime.Router
+	if os.Getenv("RABBIT_NOTEBOOK_AUTHORITY_URL") != "" {
+		if os.Getenv("NOTEBOOK_RUNTIME_SERVICE_TOKEN") == os.Getenv("RABBIT_NOTEBOOK_BROKER_TOKEN") {
+			return nil, fmt.Errorf("notebook authority and broker credentials must be distinct")
+		}
+		authority, err := notebookruntime.NewHTTPAuthority(os.Getenv("RABBIT_NOTEBOOK_AUTHORITY_URL"), os.Getenv("NOTEBOOK_RUNTIME_SERVICE_TOKEN"),
+			os.Getenv("RABBIT_ALLOW_INSECURE_LOCAL") == "true" && os.Getenv("ENVIRONMENT") != "production")
+		if err != nil {
+			return nil, fmt.Errorf("invalid notebook runtime authority configuration")
+		}
+		runtimeRouter, err = notebookruntime.NewRouter(authority, os.Getenv("RABBIT_NOTEBOOK_BROKER_TOKEN"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid notebook broker configuration")
+		}
+	}
+	configured := false
+	defer func() {
+		if !configured && runtimeRouter != nil {
+			runtimeRouter.Close()
+		}
+	}()
 	log.Println("Loading .env file")
 	// Initialize database connection
 	dbConfig := database.GetConfigFromEnv()
@@ -117,6 +141,7 @@ func NewServer(config Config) (*Server, error) {
 		stopChan:           make(chan struct{}),
 		dbService:          dbService,
 		securityMiddleware: securityMiddleware,
+		runtimeRouter:      runtimeRouter,
 	}
 
 	// Create API server if port is specified
@@ -125,6 +150,7 @@ func NewServer(config Config) (*Server, error) {
 		server.apiServer.onRevoke = server.revokeToken
 	}
 
+	configured = true
 	return server, nil
 }
 
@@ -173,6 +199,9 @@ func (s *Server) Start() error {
 // Stop stops the tunnel server
 func (s *Server) Stop() error {
 	close(s.stopChan)
+	if s.runtimeRouter != nil {
+		s.runtimeRouter.Close()
+	}
 
 	if s.controlListener != nil {
 		s.controlListener.Close()
@@ -256,6 +285,14 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 		return
 	}
 	firstLine = strings.TrimSpace(firstLine)
+	if firstLine == notebookruntime.RegisterFrame || firstLine == notebookruntime.OpenFrame || firstLine == notebookruntime.DataFrame {
+		if s.runtimeRouter == nil {
+			conn.Close()
+			return
+		}
+		s.runtimeRouter.Handle(firstLine, conn, reader)
+		return
+	}
 
 	// Handle data connections
 	if strings.HasPrefix(firstLine, "DATA:") {
