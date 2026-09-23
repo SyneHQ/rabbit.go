@@ -22,7 +22,7 @@ At most eight streams may be open for one runtime, 128 pairing requests globally
 
 `rabbit.go runtime-connect --connection-file /absolute/path/runtime.json` loads a private regular JSON file (0600, maximum 8 KiB), verifies Rabbit TLS for both control and data, and connects only to the configured literal-loopback helper. The file contains `version: 2`, `serverAddress`, `caFile`, `serverName`, `helperAddress` and `registration`. Enrollment creates the scoped registration separately. Never pass credentials on the command line or put this file in a notebook workspace.
 
-This command connects an already-running helper; it does not yet implement enrollment UX or process supervision. Customer runtime selection remains disabled until the launcher, central coordinator, capability provisioning and Quantum Lab review flow are integrated and accepted together.
+This command connects an already-running helper. For verified HTTPS enrollment, private credential rotation, and process supervision, use the [local runtime launcher](notebook-runtime-launcher.md). Customer runtime selection remains gated on integrated launcher, central coordinator, capability provisioning and Quantum Lab review-flow acceptance.
 
 ## Validation
 

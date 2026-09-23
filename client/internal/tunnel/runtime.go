@@ -37,6 +37,8 @@ type RuntimeClient struct {
 	HelperAddress string
 }
 
+func (c *RuntimeClient) Validate() error { return c.validate() }
+
 func (c *RuntimeClient) validate() error {
 	s := c.Registration.RuntimeScope
 	host, port, err := net.SplitHostPort(c.HelperAddress)
