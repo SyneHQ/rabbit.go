@@ -1,10 +1,16 @@
-FROM golang:1.26.8-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine AS builder
 
 WORKDIR /app
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o rabbit.go main.go
+# Cross compile for the requested platform rather than emulating it. The binary
+# is static and pure Go, so this is a plain GOOS/GOARCH build and multi-platform
+# images cost no extra build time.
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -ldflags="-s -w" -o rabbit.go main.go
 
 FROM gcr.io/distroless/static-debian12 AS runner
 
