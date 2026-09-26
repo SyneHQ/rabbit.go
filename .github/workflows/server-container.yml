@@ -54,20 +54,21 @@ jobs:
         with:
           context: ./server
           file: ./server/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Keep a single plain manifest. Attestations add a manifest list that
-          # some consumers resolve awkwardly, and nothing here needs them yet.
+          # A multi-platform build already publishes a manifest list; keep
+          # attestations off so it holds only the two platform manifests.
           provenance: false
 
       # Printed so a deployment can pin the digest without pulling first.
       - name: Report digest
         run: |
           {
-            echo "### Server image published"
+            echo "### Server image published (linux/amd64, linux/arm64)"
             echo
             echo '```'
             echo "ghcr.io/synehq/rabbit.go@${{ steps.push.outputs.digest }}"
