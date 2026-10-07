@@ -64,7 +64,11 @@ func TestListTokenNeverSerializesSecret(t *testing.T) {
 }
 
 func TestDataPairingCapabilityIsConsumedOnce(t *testing.T) {
-	s := &Server{pendingConns: map[string]chan net.Conn{"capability": make(chan net.Conn, 1)}}
+	owner, ownerPeer := net.Pipe()
+	defer owner.Close()
+	defer ownerPeer.Close()
+	tunnel := &Tunnel{Client: owner, stopChan: make(chan struct{})}
+	s := &Server{pendingConns: map[string]*pendingConnection{"capability": {tunnel: tunnel, owner: owner, ready: make(chan net.Conn, 1)}}}
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()

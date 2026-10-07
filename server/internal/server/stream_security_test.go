@@ -128,7 +128,11 @@ func TestDataHandshakePreservesBufferedPayload(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	paired := make(chan net.Conn, 1)
-	s := &Server{pendingConns: map[string]chan net.Conn{"capability": paired}}
+	owner, ownerPeer := net.Pipe()
+	defer owner.Close()
+	defer ownerPeer.Close()
+	tunnel := &Tunnel{Client: owner, stopChan: make(chan struct{})}
+	s := &Server{pendingConns: map[string]*pendingConnection{"capability": {tunnel: tunnel, owner: owner, ready: paired}}}
 	s.wg.Add(1)
 	go s.handleControlConnection(a)
 	go b.Write([]byte("DATA:capability\npayload"))

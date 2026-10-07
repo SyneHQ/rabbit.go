@@ -1,0 +1,117 @@
+package server
+
+import (
+	"context"
+	"log"
+	"net"
+
+	"github.com/google/uuid"
+)
+
+type pendingConnection struct {
+	tunnel *Tunnel
+	owner  net.Conn
+	ready  chan net.Conn
+}
+
+type tunnelStream struct {
+	external net.Conn
+	data     net.Conn
+}
+
+func (t *Tunnel) initLifecycle(s *Server) {
+	parent := s.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	t.ctx, t.cancel = context.WithCancel(parent)
+	t.streams = make(map[*tunnelStream]struct{})
+}
+
+// The server lock orders ownership checks, relay admission and revocation.
+func (s *Server) controlOwnerActiveLocked(t *Tunnel, owner net.Conn) bool {
+	if t == nil || owner == nil || t.Client != owner {
+		return false
+	}
+	select {
+	case <-s.stopChan:
+		return false
+	default:
+	}
+	select {
+	case <-t.stopChan:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *Server) signalTunnelStopLocked(t *Tunnel) {
+	t.stopOnce.Do(func() {
+		close(t.stopChan)
+		if t.cancel != nil {
+			t.cancel()
+		}
+	})
+}
+
+func (s *Server) stopControlOwner(t *Tunnel, owner net.Conn) {
+	s.mu.Lock()
+	current := s.controlOwnerActiveLocked(t, owner)
+	if current {
+		s.signalTunnelStopLocked(t)
+	}
+	s.mu.Unlock()
+	if current {
+		s.stopTunnel(t)
+	}
+}
+
+func (s *Server) beginTunnelStream(t *Tunnel, owner, external, data net.Conn) (*tunnelStream, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.controlOwnerActiveLocked(t, owner) {
+		return nil, false
+	}
+	stream := &tunnelStream{external: external, data: data}
+	if t.streams == nil {
+		t.streams = make(map[*tunnelStream]struct{})
+	}
+	t.streams[stream] = struct{}{}
+	return stream, true
+}
+
+func (s *Server) endTunnelStream(t *Tunnel, stream *tunnelStream) {
+	s.mu.Lock()
+	delete(t.streams, stream)
+	s.mu.Unlock()
+}
+
+func (s *Server) withActiveTunnelMetadata(t *Tunnel, owner net.Conn, operation func(context.Context) error) error {
+	t.metadataMu.Lock()
+	defer t.metadataMu.Unlock()
+	s.mu.RLock()
+	active := s.controlOwnerActiveLocked(t, owner)
+	s.mu.RUnlock()
+	if !active {
+		return net.ErrClosed
+	}
+	parent := t.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, metadataTimeout)
+	defer cancel()
+	return operation(ctx)
+}
+
+func (t *Tunnel) finishStreamLog(logID uuid.UUID, received, sent int64, status string, message *string) {
+	if logID == uuid.Nil || t.server == nil || t.server.dbService == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+	defer cancel()
+	if err := t.server.dbService.EndStream(ctx, logID, received, sent, status, message); err != nil {
+		log.Printf("Failed to complete stream log: %v", err)
+	}
+}
