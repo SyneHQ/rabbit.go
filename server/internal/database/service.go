@@ -86,6 +86,18 @@ func (s *Service) StartConnection(ctx context.Context, teamID string, tokenID, p
 	return session, log, nil
 }
 
+// StartStream records a forwarded connection under its existing tunnel session.
+// Stream setup performs one metadata insert and does not create a Redis session.
+func (s *Service) StartStream(ctx context.Context, teamID string, tokenID, portAssignID, sessionID uuid.UUID, clientIP string, clientPort, serverPort int, protocol string) (*ConnectionLog, error) {
+	return s.repo.CreateConnectionLog(ctx, teamID, tokenID, portAssignID, sessionID, clientIP, clientPort, serverPort, protocol)
+}
+
+// EndStream atomically completes its log and refreshes the parent last-seen time.
+// The parent session remains active until the tunnel itself stops.
+func (s *Service) EndStream(ctx context.Context, logID uuid.UUID, bytesReceived, bytesSent int64, status string, errorMessage *string) error {
+	return s.repo.CompleteStream(ctx, logID, bytesReceived, bytesSent, status, errorMessage)
+}
+
 // UpdateConnectionActivity updates session and connection statistics
 func (s *Service) UpdateConnectionActivity(ctx context.Context, sessionID, logID uuid.UUID, bytesReceived, bytesSent int64) error {
 	// Update session last seen
@@ -246,7 +258,7 @@ func (s *Service) ReactivateRestoredTunnel(ctx context.Context, sessionID uuid.U
 		"reactivated_at": time.Now(),
 	}
 
-	if err := s.db.SetActiveSession(sessionID, reactivationData); err != nil {
+	if err := s.db.SetActiveSessionContext(ctx, sessionID, reactivationData); err != nil {
 		// Log error but don't fail the reactivation
 		log.Printf("⚠️ Failed to store reactivation data in Redis: %v", err)
 	}

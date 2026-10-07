@@ -473,7 +473,7 @@ func (r *Repository) CreateConnectionSession(ctx context.Context, teamID string,
 	}
 
 	// Also store in Redis for fast access
-	if err := r.db.SetActiveSession(session.ID, session); err != nil {
+	if err := r.db.SetActiveSessionContext(ctx, session.ID, session); err != nil {
 		// Log error but don't fail the operation
 		fmt.Printf("Warning: failed to store session in Redis: %v\n", err)
 	}
@@ -503,7 +503,7 @@ func (r *Repository) EndConnectionSession(ctx context.Context, sessionID uuid.UU
 	}
 
 	// Remove from Redis
-	if err := r.db.DeleteActiveSession(sessionID); err != nil {
+	if err := r.db.DeleteActiveSessionContext(ctx, sessionID); err != nil {
 		// Log error but don't fail the operation
 		fmt.Printf("Warning: failed to remove session from Redis: %v\n", err)
 	}
@@ -579,6 +579,26 @@ func (r *Repository) EndConnectionLog(ctx context.Context, logID uuid.UUID, stat
 		return fmt.Errorf("failed to end connection log: %w", err)
 	}
 
+	return nil
+}
+
+// CompleteStream is idempotent: a repeated completion cannot double-count bytes.
+func (r *Repository) CompleteStream(ctx context.Context, logID uuid.UUID, bytesReceived, bytesSent int64, status string, errorMessage *string) error {
+	query := `
+		WITH completed AS (
+			UPDATE connection_logs
+			SET bytes_received = $2, bytes_sent = $3,
+				ended_at = COALESCE(ended_at, NOW()),
+				status = CASE WHEN ended_at IS NULL THEN $4 ELSE status END,
+				error_message = CASE WHEN ended_at IS NULL THEN $5 ELSE error_message END
+			WHERE id = $1
+			RETURNING session_id
+		)
+		UPDATE connection_sessions SET last_seen_at = NOW()
+		WHERE id IN (SELECT session_id FROM completed)`
+	if _, err := r.db.DB.ExecContext(ctx, query, logID, bytesReceived, bytesSent, status, errorMessage); err != nil {
+		return fmt.Errorf("failed to complete stream log: %w", err)
+	}
 	return nil
 }
 

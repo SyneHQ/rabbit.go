@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -30,13 +31,21 @@ type Config struct {
 
 // NewDatabase creates a new database instance
 func NewDatabase(config Config) (*Database, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	// Connect to PostgreSQL
 	db, err := sql.Open("postgres", config.PostgresURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
 	}
+
+	configured := false
+	defer func() {
+		if !configured {
+			db.Close()
+		}
+	}()
 
 	// Test PostgreSQL connection
 	if err := db.PingContext(ctx); err != nil {
@@ -58,31 +67,41 @@ func NewDatabase(config Config) (*Database, error) {
 		opt.DB = config.RedisDB
 	}
 
+	opt.ContextTimeoutEnabled = true
 	rdb := redis.NewClient(opt)
+	defer func() {
+		if !configured {
+			rdb.Close()
+		}
+	}()
 
 	// Test Redis connection
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
+	configured = true
 	return &Database{
 		DB:    db,
 		Redis: rdb,
-		ctx:   ctx,
+		ctx:   context.Background(),
 	}, nil
 }
 
 // Close closes all database connections
 func (d *Database) Close() error {
-	if err := d.Redis.Close(); err != nil {
-		return fmt.Errorf("failed to close Redis connection: %w", err)
+	var errs []error
+	if d.Redis != nil {
+		if err := d.Redis.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close Redis connection: %w", err))
+		}
 	}
-
-	if err := d.DB.Close(); err != nil {
-		return fmt.Errorf("failed to close PostgreSQL connection: %w", err)
+	if d.DB != nil {
+		if err := d.DB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close PostgreSQL connection: %w", err))
+		}
 	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // CleanUp cleans up the database
@@ -196,6 +215,10 @@ func (d *Database) DeleteCache(key string) error {
 
 // SetActiveSession sets an active connection session in Redis
 func (d *Database) SetActiveSession(sessionID uuid.UUID, data interface{}) error {
+	return d.SetActiveSessionContext(d.ctx, sessionID, data)
+}
+
+func (d *Database) SetActiveSessionContext(ctx context.Context, sessionID uuid.UUID, data interface{}) error {
 	key := fmt.Sprintf("session:%s", sessionID.String())
 
 	// Serialize data to JSON before storing in Redis
@@ -204,7 +227,7 @@ func (d *Database) SetActiveSession(sessionID uuid.UUID, data interface{}) error
 		return fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
-	return d.Redis.Set(d.ctx, key, jsonData, 24*time.Hour).Err()
+	return d.Redis.Set(ctx, key, jsonData, 24*time.Hour).Err()
 }
 
 // GetActiveSession gets an active connection session from Redis
@@ -215,8 +238,12 @@ func (d *Database) GetActiveSession(sessionID uuid.UUID) (string, error) {
 
 // DeleteActiveSession deletes an active session from Redis
 func (d *Database) DeleteActiveSession(sessionID uuid.UUID) error {
+	return d.DeleteActiveSessionContext(d.ctx, sessionID)
+}
+
+func (d *Database) DeleteActiveSessionContext(ctx context.Context, sessionID uuid.UUID) error {
 	key := fmt.Sprintf("session:%s", sessionID.String())
-	return d.Redis.Del(d.ctx, key).Err()
+	return d.Redis.Del(ctx, key).Err()
 }
 
 // IncrementCounter increments a counter in Redis
