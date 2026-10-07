@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -110,7 +110,7 @@ func NewAPIServer(dbService *database.Service, bindAddress string, apiPort strin
 
 	// Create HTTP server
 	apiServer.server = &http.Server{
-		Addr:         fmt.Sprintf("%s:%s", bindAddress, apiPort),
+		Addr:         net.JoinHostPort(bindAddress, apiPort),
 		Handler:      router,
 		WriteTimeout: 30 * time.Second,
 		ReadTimeout:  30 * time.Second,
@@ -128,7 +128,7 @@ func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 
 	// API routes
 	v1 := router.PathPrefix("/api/v1").Subrouter()
-	v1.Use(api.authorize)
+	v1.Use(metadataRequestDeadline, api.authorize)
 
 	// Token management
 	v1.HandleFunc("/tokens/generate", api.generateToken).Methods("POST")
@@ -162,7 +162,11 @@ func (api *APIServer) Start() error {
 func (api *APIServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return api.server.Shutdown(ctx)
+	if err := api.server.Shutdown(ctx); err != nil {
+		api.server.Close()
+		return err
+	}
+	return nil
 }
 
 // deleteToken handles DELETE /api/v1/teams/:teamId/tokens/:tokenId
@@ -232,7 +236,8 @@ func (api *APIServer) generateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+	defer cancel()
 
 	// Verify team exists
 	team, err := api.dbService.GetTeamByID(ctx, req.TeamID)
@@ -256,7 +261,7 @@ func (api *APIServer) generateToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, TokenGenerationResponse{
 			Success: false,
-			Error:   fmt.Sprintf("failed to generate token: %v", err),
+			Error:   "failed to generate token",
 		})
 		return
 	}
@@ -289,7 +294,8 @@ func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	teamId := vars["teamId"]
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+	defer cancel()
 	_, err := api.dbService.GetTeamByID(ctx, teamId)
 	if err != nil {
 		respondWithJSON(w, http.StatusNotFound, TeamTokenResponse{
@@ -352,7 +358,8 @@ func (api *APIServer) getTeamTokens(w http.ResponseWriter, r *http.Request) {
 
 // listTeams handles GET /api/v1/teams
 func (api *APIServer) listTeams(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+	defer cancel()
 	teamInfo, err := api.dbService.ListTeamsWithTokens(ctx)
 	if err != nil {
 		log.Printf("❌ Failed to list teams: %v", err)
@@ -371,13 +378,14 @@ func (api *APIServer) listTeams(w http.ResponseWriter, r *http.Request) {
 
 // getStats handles GET /api/v1/stats
 func (api *APIServer) getStats(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+	defer cancel()
 
 	stats, err := api.dbService.GetDatabaseStats(ctx)
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, StatsResponse{
 			Success: false,
-			Error:   fmt.Sprintf("failed to get stats: %v", err),
+			Error:   "failed to get stats",
 		})
 		return
 	}
@@ -395,7 +403,8 @@ func (api *APIServer) getStats(w http.ResponseWriter, r *http.Request) {
 
 // healthCheck handles GET /api/v1/health
 func (api *APIServer) healthCheck(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+	defer cancel()
 
 	err := api.dbService.HealthCheck(ctx)
 	if err != nil {
@@ -420,7 +429,7 @@ func (api *APIServer) homeEndpoint(w http.ResponseWriter, r *http.Request) {
 	info := map[string]interface{}{
 		"service":     "rabbit.go-api",
 		"version":     "1.0.1",
-		"description": "Database-backed token management API for Syne Tunneler",
+		"description": "Database-backed token management API for Rabbit",
 		"endpoints": map[string]string{
 			"health":          "GET /api/v1/health",
 			"teams":           "GET /api/v1/teams",
@@ -471,5 +480,14 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		log.Printf("🌐 %s %s %v", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+
+// Keep authentication and handlers within one request-wide metadata budget.
+func metadataRequestDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

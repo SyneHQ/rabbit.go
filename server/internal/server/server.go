@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,24 +26,33 @@ import (
 
 // Config holds server configuration
 type Config struct {
-	BindAddress string
-	ControlPort string
-	LogLevel    string
-	APIPort     string // Port for HTTP API server
+	BindAddress       string
+	TunnelBindAddress string // Database ingress; independent of the public control listener.
+	APIBindAddress    string // Management ingress; independent of the public control listener.
+	ControlPort       string
+	LogLevel          string
+	APIPort           string // Port for HTTP API server
 }
 
 // Server represents the tunnel server
 type Server struct {
-	config          Config
-	controlListener net.Listener
-	tunnels         map[string]*Tunnel
-	pendingConns    map[string]chan net.Conn
-	mu              sync.RWMutex
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
+	config           Config
+	controlListener  net.Listener
+	tunnels          map[string]*Tunnel
+	pendingConns     map[string]*pendingConnection
+	mu               sync.RWMutex
+	stopChan         chan struct{}
+	stopOnce         sync.Once
+	lifecycleMu      sync.Mutex
+	started, stopped bool
+	connections      map[net.Conn]struct{}
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
 
 	// Database integration
-	dbService *database.Service
+	dbService     *database.Service
+	closeDatabase func() error
 
 	// API server
 	apiServer *APIServer
@@ -67,6 +77,12 @@ type Tunnel struct {
 	CreatedAt    time.Time
 	stopChan     chan struct{}
 	stopOnce     sync.Once // Ensure stopChan is only closed once
+	endOnce      sync.Once
+	server       *Server
+	ctx          context.Context
+	cancel       context.CancelFunc
+	metadataMu   sync.Mutex
+	streams      map[*tunnelStream]struct{}
 	controlMu    sync.Mutex
 	wg           sync.WaitGroup
 
@@ -91,6 +107,15 @@ type TunnelResponse struct {
 
 // NewServer creates a new tunnel server
 func NewServer(config Config) (*Server, error) {
+	var err error
+	config, err = normalizeBindAddresses(config)
+	if err != nil {
+		return nil, err
+	}
+	securityConfig, err := middleware.SecurityConfigFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	var runtimeRouter *notebookruntime.Router
 	if os.Getenv("RABBIT_NOTEBOOK_AUTHORITY_URL") != "" {
 		if os.Getenv("NOTEBOOK_RUNTIME_SERVICE_TOKEN") == os.Getenv("RABBIT_NOTEBOOK_BROKER_TOKEN") {
@@ -120,10 +145,16 @@ func NewServer(config Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	defer func() {
+		if !configured {
+			db.Close()
+		}
+	}()
 	dbService := database.NewService(db)
 
 	// Test database connection
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+	defer cancel()
 	if err := dbService.HealthCheck(ctx); err != nil {
 		return nil, fmt.Errorf("database health check failed: %w", err)
 	}
@@ -131,22 +162,26 @@ func NewServer(config Config) (*Server, error) {
 	log.Printf("✅ Database connection established")
 
 	// Initialize security middleware
-	securityConfig := middleware.DefaultSecurityConfig()
 	securityMiddleware := middleware.NewSecurityMiddleware(securityConfig)
 
+	serverCtx, serverCancel := context.WithCancel(context.Background())
 	server := &Server{
 		config:             config,
 		tunnels:            make(map[string]*Tunnel),
-		pendingConns:       make(map[string]chan net.Conn),
+		pendingConns:       make(map[string]*pendingConnection),
+		connections:        make(map[net.Conn]struct{}),
+		ctx:                serverCtx,
+		cancel:             serverCancel,
 		stopChan:           make(chan struct{}),
 		dbService:          dbService,
+		closeDatabase:      db.Close,
 		securityMiddleware: securityMiddleware,
 		runtimeRouter:      runtimeRouter,
 	}
 
 	// Create API server if port is specified
 	if config.APIPort != "" {
-		server.apiServer = NewAPIServer(dbService, config.BindAddress, config.APIPort, config.ControlPort)
+		server.apiServer = NewAPIServer(dbService, config.APIBindAddress, config.APIPort, config.ControlPort)
 		server.apiServer.onRevoke = server.revokeToken
 	}
 
@@ -160,11 +195,19 @@ func (s *Server) authenticateToken(ctx context.Context, token string) (*database
 }
 
 // Start starts the tunnel server
-func (s *Server) Start() error {
-	// Set global server reference
-	globalServer = s
-
-	var err error
+func (s *Server) Start() (err error) {
+	s.lifecycleMu.Lock()
+	if s.started || s.stopped {
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("server cannot be started more than once or after Stop")
+	}
+	s.started = true
+	defer func() {
+		s.lifecycleMu.Unlock()
+		if err != nil {
+			s.Stop()
+		}
+	}()
 	s.controlListener, err = controlListener(net.JoinHostPort(s.config.BindAddress, s.config.ControlPort))
 	if err != nil {
 		return fmt.Errorf("error starting control listener: %v", err)
@@ -174,20 +217,24 @@ func (s *Server) Start() error {
 	log.Printf("🔐 Security middleware enabled")
 	log.Printf("📡 Using database-based authentication")
 
-	// Restore active connections from database
-	if err := s.restoreActiveConnections(); err != nil {
-		log.Printf("⚠️ Failed to restore active connections: %v", err)
-	}
-
-	// Start API server if configured
+	// Bind management synchronously so Start cannot report an unavailable API as ready.
 	if s.apiServer != nil {
+		apiListener, listenErr := net.Listen("tcp", s.apiServer.server.Addr)
+		if listenErr != nil {
+			return fmt.Errorf("error starting management listener: %w", listenErr)
+		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.apiServer.Start(); err != nil && err != http.ErrServerClosed {
+			if err := s.apiServer.server.Serve(apiListener); err != nil && err != http.ErrServerClosed {
 				log.Printf("❌ API server error: %v", err)
 			}
 		}()
+	}
+
+	// Restore active connections after listeners have been acquired.
+	if err := s.restoreActiveConnections(); err != nil {
+		log.Printf("Failed to restore active connections: %v", err)
 	}
 
 	s.wg.Add(1)
@@ -198,39 +245,61 @@ func (s *Server) Start() error {
 
 // Stop stops the tunnel server
 func (s *Server) Stop() error {
-	close(s.stopChan)
-	if s.runtimeRouter != nil {
-		s.runtimeRouter.Close()
-	}
-
-	if s.controlListener != nil {
-		s.controlListener.Close()
-	}
-
-	// Stop security middleware
-	if s.securityMiddleware != nil {
-		s.securityMiddleware.Stop()
-	}
-
-	// Stop API server
-	if s.apiServer != nil {
-		if err := s.apiServer.Stop(); err != nil {
-			log.Printf("⚠️ Error stopping API server: %v", err)
+	s.stopOnce.Do(func() {
+		s.lifecycleMu.Lock()
+		s.stopped = true
+		close(s.stopChan)
+		if s.cancel != nil {
+			s.cancel()
 		}
-	}
-
-	// Stop all tunnels
-	s.mu.RLock()
-	tunnels := make([]*Tunnel, 0, len(s.tunnels))
-	for _, tunnel := range s.tunnels {
-		tunnels = append(tunnels, tunnel)
-	}
-	s.mu.RUnlock()
-	for _, tunnel := range tunnels {
-		s.stopTunnel(tunnel)
-	}
-
-	s.wg.Wait()
+		if s.controlListener != nil {
+			s.controlListener.Close()
+		}
+		s.lifecycleMu.Unlock()
+		if s.runtimeRouter != nil {
+			s.runtimeRouter.Close()
+		}
+		// Closing accepted sockets interrupts TLS handshakes and control reads.
+		s.mu.RLock()
+		connections := make([]net.Conn, 0, len(s.connections))
+		for conn := range s.connections {
+			connections = append(connections, conn)
+		}
+		tunnels := make([]*Tunnel, 0, len(s.tunnels))
+		for _, tunnel := range s.tunnels {
+			tunnels = append(tunnels, tunnel)
+		}
+		s.mu.RUnlock()
+		for _, conn := range connections {
+			conn.Close()
+		}
+		// Signal every tunnel before waiting for metadata or stream cleanup.
+		for _, tunnel := range tunnels {
+			s.mu.Lock()
+			s.signalTunnelStopLocked(tunnel)
+			s.mu.Unlock()
+			if tunnel.Listener != nil {
+				tunnel.Listener.Close()
+			}
+		}
+		for _, tunnel := range tunnels {
+			s.stopTunnel(tunnel)
+		}
+		if s.apiServer != nil {
+			if err := s.apiServer.Stop(); err != nil {
+				log.Printf("Error stopping API server: %v", err)
+			}
+		}
+		s.wg.Wait()
+		if s.securityMiddleware != nil {
+			s.securityMiddleware.Stop()
+		}
+		if s.closeDatabase != nil {
+			if err := s.closeDatabase(); err != nil {
+				log.Printf("Error closing server metadata pools: %v", err)
+			}
+		}
+	})
 	return nil
 }
 
@@ -261,7 +330,17 @@ func (s *Server) handleControlConnections() {
 			// Wrap connection with security features
 			secureConn := s.securityMiddleware.WrapConnection(conn)
 
+			s.mu.Lock()
+			select {
+			case <-s.stopChan:
+				s.mu.Unlock()
+				secureConn.Close()
+				return
+			default:
+			}
+			s.connections[secureConn] = struct{}{}
 			s.wg.Add(1)
+			s.mu.Unlock()
 			go s.handleControlConnection(secureConn)
 		}
 	}
@@ -270,6 +349,11 @@ func (s *Server) handleControlConnections() {
 // handleControlConnection handles a single control connection
 func (s *Server) handleControlConnection(conn net.Conn) {
 	defer s.wg.Done()
+	defer func() {
+		s.mu.Lock()
+		delete(s.connections, conn)
+		s.mu.Unlock()
+	}()
 
 	log.Printf("New control connection from %s", conn.RemoteAddr())
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -312,12 +396,13 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	}
 	localPort = strings.TrimSpace(localPort)
 
-	ctx := context.Background()
+	ctx, cancel := s.metadataContext()
+	defer cancel()
 
 	// Authenticate token and get port assignment
 	teamToken, portAssignment, err := s.authenticateToken(ctx, token)
 	if err != nil {
-		fmt.Fprintf(conn, "ERROR:Invalid token or authentication failed\n")
+		writeControlFrame(conn, "ERROR:Invalid token or authentication failed\n")
 		log.Printf("❌ Authentication failed for token from %s: %v", conn.RemoteAddr(), err)
 		conn.Close()
 		return
@@ -339,7 +424,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 		s.mu.Unlock()
 
 		// Reconnect the client to the existing tunnel (restored or active)
-		s.reconnectClientToTunnel(existingTunnel, conn, teamToken, portAssignment, localPort)
+		s.reconnectClientToTunnel(existingTunnel, conn, reader, teamToken, localPort)
 		return
 	}
 	s.mu.Unlock()
@@ -347,65 +432,39 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	// Create new tunnel using the pre-assigned port
 	tunnel, err := s.createTunnel(teamToken, portAssignment, localPort, conn)
 	if err != nil {
-		fmt.Fprintf(conn, "ERROR:%s\n", err.Error())
+		writeControlFrame(conn, "ERROR:%s\n", err.Error())
 		log.Printf("Error creating tunnel: %v", err)
 		conn.Close()
 		return
 	}
 
-	// Send success response
-	fmt.Fprintf(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
-	log.Printf("🎯 Tunnel created: %s (team:%s, local:%s -> remote:%s)",
-		tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
-
-	// Monitor control connection - but don't kill tunnel on errors
-	// Tunnels should only die on explicit DISCONNECT, not on idle timeouts
-	for {
-		// Set a read deadline to prevent indefinite blocking
-		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
-		line, err := readControlLine(reader)
-
-		if err != nil {
-			// Check if it's just a timeout (expected for idle connections)
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout is normal - client is idle but connected
-				// Log periodically but don't stop tunnel
-				log.Printf("💤 Control connection idle for tunnel %s (tunnel still active)", tunnel.ID)
-				continue
-			}
-
-			// For other errors (connection closed, etc), close control conn but keep tunnel alive
-			log.Printf("⚠️ Control connection lost for tunnel %s: %v (tunnel infrastructure remains active for reconnection)", tunnel.ID, err)
-			conn.Close()
-
-			// Mark tunnel client as nil so it can be reconnected
-			s.mu.Lock()
-			if tunnel.Client == conn {
-				tunnel.Client = nil
-				log.Printf("🔄 Tunnel %s ready for client reconnection", tunnel.ID)
-			}
-			s.mu.Unlock()
-			return
-		}
-
-		// Clear deadline after successful read
-		conn.SetReadDeadline(time.Time{})
-
-		line = strings.TrimSpace(line)
-		switch line {
-		case "DISCONNECT":
-			log.Printf("🚪 Client explicitly disconnected from tunnel %s", tunnel.ID)
-			s.stopTunnel(tunnel)
-			return
-		case "PING":
-			// Respond to PING with PONG
-			fmt.Fprintf(conn, "PONG\n")
-		case "KEEPALIVE":
-			// Just acknowledge keepalive, no response needed
-			// This keeps the connection alive and prevents idle timeout
-		}
-		// Ignore other messages
+	tunnel.controlMu.Lock()
+	s.mu.Lock()
+	select {
+	case <-tunnel.stopChan:
+		s.mu.Unlock()
+		tunnel.controlMu.Unlock()
+		conn.Close()
+		return
+	default:
 	}
+	if tunnel.Client != nil && tunnel.Client != conn {
+		// A reconnect completed while the first registration was being checked.
+		s.mu.Unlock()
+		tunnel.controlMu.Unlock()
+		conn.Close()
+		return
+	}
+	tunnel.Client = conn
+	s.mu.Unlock()
+	err = writeControlFrame(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
+	tunnel.controlMu.Unlock()
+	if err != nil {
+		s.stopControlOwner(tunnel, conn)
+		conn.Close()
+		return
+	}
+	s.monitorControlConnection(tunnel, conn, reader)
 }
 
 // revokeToken is reachable only after the HTTP API authorizes and revokes the exact team token.
@@ -433,127 +492,121 @@ func (s *Server) findTunnelByTokenAndPort(token string, port int) *Tunnel {
 	return nil
 }
 
-// reconnectClientToTunnel reconnects a client to an existing restored tunnel
-func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, teamToken *database.TeamToken, _ *database.PortAssignment, localPort string) {
-	// If there's an existing client, close it gracefully
+// reconnectClientToTunnel reuses the listener and preserves parser read-ahead.
+func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, reader *bufio.Reader, teamToken *database.TeamToken, localPort string) {
+	// Serialize publication with CONNECT/PONG writes so SUCCESS is the first frame.
+	tunnel.controlMu.Lock()
 	s.mu.Lock()
 	select {
 	case <-tunnel.stopChan:
 		s.mu.Unlock()
+		tunnel.controlMu.Unlock()
 		conn.Close()
 		return
 	default:
 	}
 	oldClient := tunnel.Client
-	wasRestored := (oldClient == nil) // Check if this was a restored tunnel without a client
-	if oldClient != nil {
-		log.Printf("🔄 Closing existing client connection for tunnel %s", tunnel.ID)
-		oldClient.Close()
-		// Do NOT close tunnel.stopChan here! This keeps the tunnel alive.
-	}
-
-	// Update tunnel with new client connection
 	tunnel.Client = conn
 	tunnel.LocalPort = localPort
-	// Do NOT reset stopChan here; keep the tunnel running
 	s.mu.Unlock()
-
-	// Send success response to client
-	fmt.Fprintf(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
 	if oldClient != nil {
-		log.Printf("🎯 Client connection replaced for tunnel: %s (team:%s, local:%s -> remote:%s)",
-			tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
-	} else {
-		log.Printf("🎯 Client reconnected to restored tunnel: %s (team:%s, local:%s -> remote:%s)",
-			tunnel.ID, teamToken.Team.Name, localPort, tunnel.RemotePort)
+		oldClient.Close()
 	}
-
-	// Reactivate the tunnel in database
-	ctx := context.Background()
-	if tunnel.SessionID != "" {
-		sessionID, _ := uuid.Parse(tunnel.SessionID)
-		clientIP := conn.RemoteAddr().(*net.TCPAddr).IP.String()
-		if err := s.dbService.ReactivateRestoredTunnel(ctx, sessionID, clientIP); err != nil {
-			log.Printf("⚠️ Failed to reactivate tunnel in database: %v", err)
+	err := writeControlFrame(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
+	tunnel.controlMu.Unlock()
+	if err != nil {
+		s.disconnectClient(tunnel, conn)
+		return
+	}
+	if tunnel.SessionID != "" && s.dbService != nil {
+		err := s.withActiveTunnelMetadata(tunnel, conn, func(ctx context.Context) error {
+			sessionID, _ := uuid.Parse(tunnel.SessionID)
+			clientIP := conn.RemoteAddr().(*net.TCPAddr).IP.String()
+			return s.dbService.ReactivateRestoredTunnel(ctx, sessionID, clientIP)
+		})
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Printf("Failed to reactivate tunnel metadata: %v", err)
 		}
 	}
-
-	// For restored tunnels, acceptRestoredConnections is already handling incoming connections
-	// and will now forward them through the newly connected client.
-	// For tunnels with existing clients, start normal tunnel monitoring
-	if !wasRestored {
-		// Start normal tunnel operations (monitor control connection)
-		go s.monitorControlConnection(tunnel, conn)
-	} else {
-		// For restored tunnels, just monitor the control connection
-		// acceptRestoredConnections is already running and will handle forwarding
-		go s.monitorControlConnection(tunnel, conn)
-	}
+	log.Printf("Client reconnected to tunnel %s for team %s", tunnel.ID, teamToken.TeamID)
+	s.monitorControlConnection(tunnel, conn, reader)
 }
 
-// monitorControlConnection monitors the control connection for disconnect messages
-func (s *Server) monitorControlConnection(tunnel *Tunnel, conn net.Conn) {
-	reader := bufio.NewReader(conn)
+func (s *Server) disconnectClient(tunnel *Tunnel, conn net.Conn) {
+	conn.Close()
+	s.mu.Lock()
+	if tunnel.Client == conn {
+		tunnel.Client = nil
+	}
+	s.mu.Unlock()
+}
+
+// monitorControlConnection is owned by the tracked connection handler.
+func (s *Server) monitorControlConnection(tunnel *Tunnel, conn net.Conn, reader *bufio.Reader) {
+	defer s.disconnectClient(tunnel, conn)
 	for {
+		if err := conn.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+			return
+		}
 		line, err := readControlLine(reader)
 		if err != nil {
-			log.Printf("Control connection closed for tunnel %s: %v", tunnel.ID, err)
-			// Mark client as disconnected but keep tunnel alive for restoration
-			s.mu.Lock()
-			if tunnel.Client == conn {
-				tunnel.Client = nil
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
 			}
-			s.mu.Unlock()
-			log.Printf("🔌 Client disconnected from tunnel %s, keeping port alive for reconnection", tunnel.ID)
 			return
 		}
-		line = strings.TrimSpace(line)
-		if line == "DISCONNECT" {
-			log.Printf("🚪 Client requested disconnect for tunnel %s", tunnel.ID)
-			s.stopTunnel(tunnel)
+		s.mu.RLock()
+		current := tunnel.Client == conn
+		s.mu.RUnlock()
+		if !current {
 			return
+		}
+		switch strings.TrimSpace(line) {
+		case "DISCONNECT":
+			s.stopControlOwner(tunnel, conn)
+			return
+		case "PING":
+			if err := tunnel.writeControl(conn, "PONG\n"); err != nil {
+				return
+			}
+		case "KEEPALIVE":
 		}
 	}
 }
 
-// handleDataConnection handles a data connection from a client
+// handleDataConnection consumes a capability only for its original live owner.
 func (s *Server) handleDataConnection(conn net.Conn, dataLine string) {
-	// Parse the data line: DATA:connectionID
-	parts := strings.Split(dataLine, ":")
-	if len(parts) < 2 {
-		log.Printf("Invalid data connection format: %s", dataLine)
+	connID := strings.TrimPrefix(dataLine, "DATA:")
+	if connID == dataLine || connID == "" || strings.Contains(connID, ":") {
 		conn.Close()
 		return
 	}
-
-	connID := parts[1]
-
-	// Find the pending connection
 	s.mu.Lock()
-	connChan, exists := s.pendingConns[connID]
-	if !exists {
+	pending := s.pendingConns[connID]
+	delete(s.pendingConns, connID)
+	if pending == nil || !s.controlOwnerActiveLocked(pending.tunnel, pending.owner) {
 		s.mu.Unlock()
-		log.Printf("No pending data connection")
 		conn.Close()
 		return
 	}
-	delete(s.pendingConns, connID)
-	defer s.mu.Unlock()
-
-	_ = conn.SetReadDeadline(time.Time{})
-	// Send the connection to the waiting handler
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		s.mu.Unlock()
+		conn.Close()
+		return
+	}
 	select {
-	case connChan <- conn:
-		log.Printf("Data connection paired")
+	case pending.ready <- conn:
+		s.mu.Unlock()
 	default:
-		log.Printf("Failed to pair data connection")
+		s.mu.Unlock()
 		conn.Close()
 	}
 }
 
 // createTunnel creates a new tunnel using database-assigned port
 func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *database.PortAssignment, localPort string, client net.Conn) (*Tunnel, error) {
-	ctx := context.Background()
+	ctx, cancel := s.metadataContext()
+	defer cancel()
 
 	// Generate random tunnel ID
 	tunnelID, err := generateTunnelID()
@@ -565,7 +618,7 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 	remotePort := strconv.Itoa(portAssignment.Port)
 
 	// Create listener for the tunnel on the assigned port
-	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.BindAddress, remotePort))
+	listener, err := net.Listen("tcp", net.JoinHostPort(s.tunnelBindAddress(), remotePort))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tunnel listener on port %s: %v", remotePort, err)
 	}
@@ -578,8 +631,9 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 		PortAssignID: portAssignment.ID.String(),
 		LocalPort:    localPort,
 		RemotePort:   remotePort,
-		BindAddress:  s.config.BindAddress,
-		Client:       client,
+		BindAddress:  s.tunnelBindAddress(),
+		server:       s,
+		Client:       nil, // Published after the initial SUCCESS frame is serialized.
 		Listener:     listener,
 		CreatedAt:    time.Now(),
 		stopChan:     make(chan struct{}),
@@ -602,14 +656,24 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 		log.Printf("📊 Database session created: %s", session.ID)
 	}
 
+	tunnel.initLifecycle(s)
+
 	// Register the listener goroutine before publishing the tunnel to revocation.
 	tunnel.wg.Add(1)
 	// Add to tunnels map
 	s.mu.Lock()
+	select {
+	case <-s.stopChan:
+		s.mu.Unlock()
+		tunnel.wg.Done()
+		s.stopTunnel(tunnel)
+		return nil, net.ErrClosed
+	default:
+	}
 	s.tunnels[tunnelID] = tunnel
 	s.mu.Unlock()
 
-	go tunnel.handleTunnel()
+	go tunnel.acceptConnections()
 	// Publication precedes the final check, so concurrent API revocation either
 	// observes this tunnel or this query observes the revoked token.
 	if _, _, err := s.authenticateToken(ctx, teamToken.Token); err != nil {
@@ -618,38 +682,6 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 	}
 
 	return tunnel, nil
-}
-
-// handleTunnel handles tunnel traffic
-func (t *Tunnel) handleTunnel() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic in tunnel %s: %v", t.ID, r)
-		}
-		// Ensure stopChan is closed when client disconnects
-		t.stopOnce.Do(func() { close(t.stopChan) })
-	}()
-
-	defer t.Listener.Close()
-	go t.acceptConnections()
-
-	// Wait for stop signal or client disconnection
-	<-t.stopChan
-
-	// End database session
-	if t.SessionID != "" && t.ConnectionLog != "" {
-		ctx := context.Background()
-		server := getServerFromTunnel(t)
-		if server != nil && server.dbService != nil {
-			sessionID, _ := uuid.Parse(t.SessionID)
-			logID, _ := uuid.Parse(t.ConnectionLog)
-			if err := server.dbService.EndConnection(ctx, sessionID, logID, "closed", nil); err != nil {
-				log.Printf("⚠️ Failed to end database session: %v", err)
-			}
-		}
-	}
-
-	log.Printf("🔚 Tunnel %s finished", t.ID)
 }
 
 // acceptConnections accepts and handles incoming connections on the tunnel port
@@ -715,21 +747,26 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		return
 	}
 	s.mu.Lock()
-	s.pendingConns[connID] = connChan
+	if !s.controlOwnerActiveLocked(t, client) {
+		s.mu.Unlock()
+		return
+	}
+	s.pendingConns[connID] = &pendingConnection{tunnel: t, owner: client, ready: connChan}
 	s.mu.Unlock()
 	defer func() {
+		var unused net.Conn
 		s.mu.Lock()
 		delete(s.pendingConns, connID)
 		select {
-		case unused := <-connChan:
-			unused.Close()
+		case unused = <-connChan:
 		default:
 		}
 		s.mu.Unlock()
+		if unused != nil {
+			unused.Close()
+		}
 	}()
-	t.controlMu.Lock()
-	_, err = fmt.Fprintf(client, "CONNECT\nCONN_ID:%s\n", connID)
-	t.controlMu.Unlock()
+	err = t.writeControl(client, "CONNECT\nCONN_ID:%s\n", connID)
 	if err != nil {
 		return
 	}
@@ -737,17 +774,28 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 	// Wait for data connection with timeout
 	select {
 	case dataConn := <-connChan:
+		defer dataConn.Close()
 		// Clean up the pending connection
 		s.mu.Lock()
 		delete(s.pendingConns, connID)
+		active := s.controlOwnerActiveLocked(t, client)
 		s.mu.Unlock()
+		if !active {
+			return
+		}
 
 		log.Printf("Data connection established")
 
 		// Create a connection log entry for this specific connection
 		connectionLogID := t.createConnectionLog(clientIP, clientPort)
 
-		// Bridge the connections and track statistics
+		// Recheck ownership after metadata work, before either relay starts.
+		stream, ok := s.beginTunnelStream(t, client, externalConn, dataConn)
+		if !ok {
+			t.finishStreamLog(connectionLogID, 0, 0, "closed", nil)
+			return
+		}
+		defer s.endTunnelStream(t, stream)
 		t.bridgeConnectionsWithLogging(externalConn, dataConn, connectionLogID)
 
 	case <-t.stopChan:
@@ -768,70 +816,39 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 //   - "error": Connection failed due to an error
 //   - "timeout": Connection timed out
 func (t *Tunnel) logConnectionAttempt(clientIP string, clientPort int, status string, errorMsg string) {
-	if t.TeamID == "" || t.TokenID == "" || t.PortAssignID == "" {
-		return // Skip if we don't have proper IDs
+	connectionLogID := t.createConnectionLog(clientIP, clientPort)
+	if connectionLogID == uuid.Nil || status == "active" {
+		return
 	}
-
-	ctx := context.Background()
 	server := getServerFromTunnel(t)
-	if server == nil || server.dbService == nil {
-		return
-	}
-
-	tokenID, _ := uuid.Parse(t.TokenID)
-	portAssignID, _ := uuid.Parse(t.PortAssignID)
-
-	serverPort, _ := strconv.Atoi(t.RemotePort)
-
-	// Create connection log through service
-	session, connLog, err := server.dbService.StartConnection(ctx, t.TeamID, tokenID, portAssignID,
-		clientIP, serverPort, "tcp")
-
-	if err != nil {
-		log.Printf("⚠️ Failed to log connection attempt: %v", err)
-		return
-	}
-
-	// If this was a failed connection, end it immediately
-	if status != "active" && connLog != nil {
-		var errorMessage *string
-		if errorMsg != "" {
-			errorMessage = &errorMsg
-		}
-		if err := server.dbService.EndConnection(ctx, session.ID, connLog.ID, status, errorMessage); err != nil {
-			log.Printf("⚠️ Failed to end failed connection log: %v", err)
-		}
-		log.Printf("📝 Logged connection attempt from %s:%d - %s", clientIP, clientPort, status)
+	ctx, cancel := server.metadataContext()
+	defer cancel()
+	if err := server.dbService.EndStream(ctx, connectionLogID, 0, 0, status, &errorMsg); err != nil {
+		log.Printf("Failed to end connection attempt log: %v", err)
 	}
 }
 
-// createConnectionLog creates a connection log entry for a successful connection
+// createConnectionLog attaches each stream to the existing tunnel session.
 func (t *Tunnel) createConnectionLog(clientIP string, clientPort int) uuid.UUID {
 	if t.TeamID == "" || t.TokenID == "" || t.PortAssignID == "" || t.SessionID == "" {
 		return uuid.Nil
 	}
-
-	ctx := context.Background()
 	server := getServerFromTunnel(t)
 	if server == nil || server.dbService == nil {
 		return uuid.Nil
 	}
-
+	ctx, cancel := server.metadataContext()
+	defer cancel()
 	tokenID, _ := uuid.Parse(t.TokenID)
 	portAssignID, _ := uuid.Parse(t.PortAssignID)
-
+	sessionID, _ := uuid.Parse(t.SessionID)
 	serverPort, _ := strconv.Atoi(t.RemotePort)
-
-	// Create connection log through service
-	_, connLog, err := server.dbService.StartConnection(ctx, t.TeamID, tokenID, portAssignID,
-		clientIP, serverPort, "tcp")
-
+	connLog, err := server.dbService.StartStream(ctx, t.TeamID, tokenID, portAssignID, sessionID,
+		clientIP, clientPort, serverPort, "tcp")
 	if err != nil || connLog == nil {
-		log.Printf("⚠️ Failed to create connection log: %v", err)
+		log.Printf("Failed to create connection log: %v", err)
 		return uuid.Nil
 	}
-
-	log.Printf("📊 Created connection log: %s (client: %s:%d)", connLog.ID, clientIP, clientPort)
 	return connLog.ID
 }
 
@@ -839,6 +856,12 @@ func (t *Tunnel) createConnectionLog(clientIP string, clientPort int) uuid.UUID 
 func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionLogID uuid.UUID) {
 	defer conn1.Close()
 	defer conn2.Close()
+	select {
+	case <-t.stopChan:
+		t.finishStreamLog(connectionLogID, 0, 0, "closed", nil)
+		return
+	default:
+	}
 
 	startTime := time.Now()
 	type copyResult struct {
@@ -859,7 +882,7 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 	}()
 	copyDirection := func(dst, src net.Conn, received bool) {
 		n, err := io.Copy(dst, src)
-		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
 			dst.Close()
 			src.Close()
 		}
@@ -879,7 +902,7 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 		} else {
 			bytesSent = result.bytes
 		}
-		if result.err != nil && result.err != io.EOF && !strings.Contains(result.err.Error(), "use of closed network connection") {
+		if result.err != nil && !errors.Is(result.err, io.EOF) && !errors.Is(result.err, net.ErrClosed) {
 			bridgeErr = result.err
 		}
 	}
@@ -894,53 +917,55 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 		errorMessage = &errMsg
 	}
 
-	// Update session activity and end the connection log
-	if t.SessionID != "" && connectionLogID != uuid.Nil {
-		ctx := context.Background()
-		server := getServerFromTunnel(t)
-		if server != nil && server.dbService != nil {
-			sessionID, _ := uuid.Parse(t.SessionID)
-
-			// Update connection activity (this will update stats)
-			if err := server.dbService.UpdateConnectionActivity(ctx, sessionID, connectionLogID, bytesReceived, bytesSent); err != nil {
-				log.Printf("⚠️ Failed to update session activity: %v", err)
-			}
-
-			// End the connection
-			if err := server.dbService.EndConnection(ctx, sessionID, connectionLogID, status, errorMessage); err != nil {
-				log.Printf("⚠️ Failed to end connection: %v", err)
-			}
-		}
-	}
+	t.finishStreamLog(connectionLogID, bytesReceived, bytesSent, status, errorMessage)
 
 	log.Printf("📊 Bridge finished for tunnel %s - Duration: %v, Sent: %d bytes, Received: %d bytes, Status: %s",
 		t.ID, duration, bytesSent, bytesReceived, status)
 }
 
-// Helper function to get server reference from tunnel
-var globalServer *Server
-
-func getServerFromTunnel(_ *Tunnel) *Server {
-	return globalServer
-}
+func getServerFromTunnel(t *Tunnel) *Server { return t.server }
 
 // stopTunnel stops a tunnel
 func (s *Server) stopTunnel(tunnel *Tunnel) {
-	tunnel.stopOnce.Do(func() { close(tunnel.stopChan) })
-	if tunnel.Listener != nil {
-		tunnel.Listener.Close()
-	}
 	s.mu.Lock()
+	s.signalTunnelStopLocked(tunnel)
 	client := tunnel.Client
 	tunnel.Client = nil
 	if s.tunnels[tunnel.ID] == tunnel {
 		delete(s.tunnels, tunnel.ID)
 	}
+	streams := make([]*tunnelStream, 0, len(tunnel.streams))
+	for stream := range tunnel.streams {
+		streams = append(streams, stream)
+	}
 	s.mu.Unlock()
+	if tunnel.Listener != nil {
+		tunnel.Listener.Close()
+	}
 	if client != nil {
 		client.Close()
 	}
+	for _, stream := range streams {
+		stream.external.Close()
+		stream.data.Close()
+	}
 	tunnel.wg.Wait()
+	tunnel.endOnce.Do(func() {
+		// A reconnect may already be inside the bounded metadata operation.
+		// Wait for it before deleting the session's Redis key.
+		tunnel.metadataMu.Lock()
+		defer tunnel.metadataMu.Unlock()
+		if s.dbService == nil || tunnel.SessionID == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		defer cancel()
+		sessionID, _ := uuid.Parse(tunnel.SessionID)
+		logID, _ := uuid.Parse(tunnel.ConnectionLog)
+		if err := s.dbService.EndConnection(ctx, sessionID, logID, "closed", nil); err != nil {
+			log.Printf("Failed to end tunnel session: %v", err)
+		}
+	})
 }
 
 // generateTunnelID generates a random tunnel ID
@@ -954,7 +979,8 @@ func generateTunnelID() (string, error) {
 
 // restoreActiveConnections restores tunnel listeners for active connections from the database
 func (s *Server) restoreActiveConnections() error {
-	ctx := context.Background()
+	ctx, cancel := s.metadataContext()
+	defer cancel()
 
 	log.Printf("🔄 Checking for active connections to restore...")
 
@@ -1022,7 +1048,7 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 	}
 
 	// Create listener on the assigned port
-	listener, err := net.Listen("tcp", net.JoinHostPort(s.config.BindAddress, strconv.Itoa(portAssignment.Port)))
+	listener, err := net.Listen("tcp", net.JoinHostPort(s.tunnelBindAddress(), strconv.Itoa(portAssignment.Port)))
 	if err != nil {
 		return fmt.Errorf("failed to create listener on port %d: %w", portAssignment.Port, err)
 	}
@@ -1036,7 +1062,8 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 		PortAssignID: portAssignment.ID.String(),
 		LocalPort:    "restored",
 		RemotePort:   strconv.Itoa(portAssignment.Port),
-		BindAddress:  s.config.BindAddress,
+		BindAddress:  s.tunnelBindAddress(),
+		server:       s,
 		Client:       nil, // No client connection for restored tunnels initially
 		Listener:     listener,
 		CreatedAt:    time.Now(),
@@ -1044,10 +1071,20 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 		SessionID:    session.ID.String(),
 	}
 
+	tunnel.initLifecycle(s)
+
 	// Register the listener goroutine before publishing the tunnel to revocation.
 	tunnel.wg.Add(1)
 	// Add to tunnels map
 	s.mu.Lock()
+	select {
+	case <-s.stopChan:
+		s.mu.Unlock()
+		tunnel.wg.Done()
+		s.stopTunnel(tunnel)
+		return net.ErrClosed
+	default:
+	}
 	s.tunnels[tunnelID] = tunnel
 	s.mu.Unlock()
 
@@ -1111,7 +1148,13 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 						// handleConnection will call t.wg.Done() and close the connection
 						return
 					}
-					time.Sleep(checkInterval)
+					select {
+					case <-t.stopChan:
+						c.Close()
+						t.wg.Done()
+						return
+					case <-time.After(checkInterval):
+					}
 					waited += checkInterval
 				}
 
