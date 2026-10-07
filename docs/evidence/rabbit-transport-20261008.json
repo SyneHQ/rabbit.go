@@ -1,0 +1,3388 @@
+{
+  "artifacts": {
+    "baseline": {
+      "benchmark_binary": {
+        "bytes": 13801599,
+        "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+      },
+      "client_binary": {
+        "bytes": 10307655,
+        "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+      },
+      "source_archive": {
+        "bytes": 3041280,
+        "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+      }
+    },
+    "candidate": {
+      "benchmark_binary": {
+        "bytes": 13955713,
+        "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+      },
+      "client_binary": {
+        "bytes": 10316035,
+        "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+      },
+      "source_archive": {
+        "bytes": 3297280,
+        "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+      }
+    }
+  },
+  "calculation": {
+    "first_byte": "Median of five per-run means from dial start to first result byte. Not an individual request percentile.",
+    "limitation": "Median paired change can differ from the ratio of median rates. No p95 or confidence interval is inferred from this small corpus.",
+    "paired_change": "100 * (candidate_rate / baseline_rate - 1) within each alternating pair; report median/range of five paired changes.",
+    "rate_MB_per_s": "payload_bytes_per_stream * concurrency * 1000 / ns_per_op; decimal MB. Derived from ns/op to avoid displayed MB/s rounding.",
+    "rate_summary": "Median and range of five process-level run means; each run mean covers five concurrent waves."
+  },
+  "campaign": {
+    "cases_per_run": 12,
+    "completed_runs": 10,
+    "controller_sha256": "9595560574f19c2a445a9ea12c8d225fb5b2f9c1e156c9baa176c109932bd837",
+    "elapsed_seconds": 176.24825962993782,
+    "finished_at": "2026-10-07T19:27:56.516617+00:00",
+    "flags": [
+      "-test.run=^$",
+      "-test.bench=^BenchmarkNativeDatabaseTransport$",
+      "-test.benchtime=5x",
+      "-test.count=1",
+      "-test.timeout=12m"
+    ],
+    "integrity": "All 10 processes passed, all 12 cases per process present, N=5, source/binary hashes unchanged, raw log hashes verified, native descendant process groups gone.",
+    "measured_waves_per_case_per_run": 5,
+    "measured_waves_per_case_per_variant": 25,
+    "observable_run_means_per_case_per_variant": 5,
+    "order": "AB,BA,AB,BA,AB",
+    "pairs": 5,
+    "raw_receipt_sha256": "22ac105de9ca81185d5aa52afb0aaeff8e9dd633177e367b12975d617ff92acc",
+    "started_at": "2026-10-07T19:25:00.267246+00:00",
+    "total_case_measurements": 120,
+    "total_measured_waves": 600,
+    "warmup_excluded": true
+  },
+  "cross_compilation": {
+    "binaries": {
+      "rabbit-client": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9",
+      "rabbit-client-darwin-amd64": "a91c7406622486e2c2132817b25132015cab4d6cb7df793d55bb3e77be5b395d",
+      "rabbit-client-darwin-arm64": "e0a9496ae5322d7ede6bf73b736a080fb03a52112c18bbc2af809910991a250f",
+      "rabbit-client-linux-arm64": "50a76a52e88b363f142d7845009a5711d84d57d8e1b95e6113c237edb3fa6f8a",
+      "rabbit-client-race": "a0074df358e28098740917dd5a51e2bf7080d21ae2b56c7088376755bde6fe12",
+      "rabbit-client-windows-amd64": "9356cbe685075860f5135c4e59303f17f62657a6f10fac78f42afab59aa09c29"
+    },
+    "client_sources_match_final_validation": true,
+    "passed": true,
+    "phase": "cross",
+    "source_sha256": "351709ff500553171dec6f0215c0b349e197129cd6ac712a638724bee77304ff",
+    "steps": [
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 3.787,
+        "step": "linux-arm64"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 34.95,
+        "step": "darwin-arm64"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 35.348,
+        "step": "darwin-amd64"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 29.65,
+        "step": "windows-amd64"
+      }
+    ]
+  },
+  "date": "2026-10-08",
+  "environment": {
+    "GOMAXPROCS_per_go_process": 2,
+    "architecture": "x86_64",
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "cpu_models": [
+      "INTEL(R) XEON(R) PLATINUM 8573C"
+    ],
+    "host_logical_cpus": 4,
+    "kernel": "6.12.95+deb12-cloud-amd64",
+    "memory_peak_note": "All memory.peak values are cumulative cgroup observations including the harness and 64 MiB corpus, not production Rabbit RSS. The peak was not reset between runs.",
+    "metadata_fixtures": {
+      "network": "Unix sockets, no container network",
+      "outside_test_cgroup": true,
+      "postgres_cpu_quota_cores": 0.5,
+      "postgres_memory_limit_bytes": 536870912,
+      "redis_cpu_quota_cores": 0.25,
+      "redis_memory_limit_bytes": 134217728
+    },
+    "os": "Linux",
+    "payload_seed_hex": "e7037ed1a0b428db",
+    "source": "same-host loopback deterministic high-entropy corpus",
+    "test_cgroup_cpu_quota_cores": 2,
+    "test_cgroup_memory_limit_bytes": 4294967296
+  },
+  "final_linux_validation": {
+    "binaries": {
+      "rabbit-client": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9",
+      "rabbit-client-race": "ae645ff28e10e3c98c6cc460e48b0f12de38452fc219d5798f77f0ff5904b726",
+      "rabbit-server": "a6259275271c9b90e243683e0622b5569af402866751617899251133da0469a2"
+    },
+    "passed": true,
+    "phase": "native",
+    "source_sha256": "52976d31d173052c8af1cb019d6ba49db0d4fd80140ed357b450a97abfe4acbe",
+    "steps": [
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.415,
+        "step": "client-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.966,
+        "step": "client-race-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 2.168,
+        "step": "server-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "bdabc359b11dc9733d497f07b026d86b5301148038d0d6ba5e44cbc2b586273e",
+        "seconds": 2.106,
+        "step": "client-normal"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "77d8925f01636105bd445a1106451019c645f0a43eacbccc80c352432a1d8357",
+        "seconds": 3.071,
+        "step": "client-race"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.273,
+        "step": "client-vet"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "c9c3ea38cadb40c3a216a99c00ce438ccac925d7ca2144087624fe1d40f8e48e",
+        "seconds": 24.257,
+        "step": "server-normal"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "f35f457008f3cf1da4d26cc80f41ef1d87db53b695d86c90d4c87ab8df14c664",
+        "seconds": 38.647,
+        "step": "server-race"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.515,
+        "step": "server-vet"
+      }
+    ]
+  },
+  "final_required_gates": {
+    "server-normal": {
+      "passed": [
+        "TestAtomicScopedRevocationRetainsHistory",
+        "TestKelvoPostgresThroughRabbit",
+        "TestNativeDatabaseTransport",
+        "TestRealMetadataMembership",
+        "TestRuntimeClientTLSIntegration",
+        "TestStreamAccountingPreservesTunnelSession",
+        "TestTransportOutputDetectsRaceBeyondLogCap"
+      ],
+      "skipped": [
+        "TestRuntimeLauncherNativeTLSIntegration",
+        "TestRuntimePublicExternalAuthorityAcceptance"
+      ]
+    },
+    "server-race": {
+      "passed": [
+        "TestAtomicScopedRevocationRetainsHistory",
+        "TestKelvoPostgresThroughRabbit",
+        "TestNativeDatabaseTransport",
+        "TestRealMetadataMembership",
+        "TestRuntimeClientTLSIntegration",
+        "TestStreamAccountingPreservesTunnelSession",
+        "TestTransportOutputDetectsRaceBeyondLogCap"
+      ],
+      "skipped": [
+        "TestRuntimeLauncherNativeTLSIntegration",
+        "TestRuntimePublicExternalAuthorityAcceptance"
+      ]
+    }
+  },
+  "fixture_cleanup": {
+    "complete": true,
+    "errors": [],
+    "owned_containers_removed": 2,
+    "unrelated_services_not_targeted": true
+  },
+  "kelvo_acceptance": {
+    "limitation": "One ordered direct-then-Rabbit sample per query. Correctness proof only; race timings are not used for performance claims.",
+    "normal": {
+      "kelvo_binary_sha256": "46017aa50153059b39cffc921e842bf771fa53d1e3f1f19a0fee225bcb62cecb",
+      "kelvo_version": "Kelvo Go dev",
+      "measurements": {
+        "direct_cte": {
+          "arrow_bytes": 8872,
+          "arrow_file_sha256": "eb87e37be31e40d4acfaf6f576a4201aba71f7ec6d4a4469134df90c2a2b1443",
+          "elapsed_ns": 641243233,
+          "query_sha256": "f254498f868fe5a39075dba091671a933086c89e3eb31d06c04c6d96c53be547"
+        },
+        "direct_rows": {
+          "arrow_bytes": 48888192,
+          "arrow_file_sha256": "bd14c4a79fe83a886ba0cb489f91eff452e06569195a69dd2aa159888f6aa100",
+          "elapsed_ns": 3952522657,
+          "query_sha256": "15d26a229e3e5501ac095eab981483b78bc7ccbe1f71e377d7610e3aab29840f"
+        },
+        "rabbit_cte": {
+          "arrow_bytes": 8872,
+          "arrow_file_sha256": "eb87e37be31e40d4acfaf6f576a4201aba71f7ec6d4a4469134df90c2a2b1443",
+          "elapsed_ns": 605811716,
+          "query_sha256": "f254498f868fe5a39075dba091671a933086c89e3eb31d06c04c6d96c53be547"
+        },
+        "rabbit_rows": {
+          "arrow_bytes": 48888192,
+          "arrow_file_sha256": "bd14c4a79fe83a886ba0cb489f91eff452e06569195a69dd2aa159888f6aa100",
+          "elapsed_ns": 4050899025,
+          "query_sha256": "15d26a229e3e5501ac095eab981483b78bc7ccbe1f71e377d7610e3aab29840f"
+        }
+      },
+      "postgres_version": "PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+      "pyarrow_version": "25.0.1",
+      "rabbit_client_binary_sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9",
+      "rows": 1000000,
+      "scope": "synthetic PostgreSQL fixture; native Kelvo CLI; verified source TLS; loopback direct versus Rabbit TLS tunnel",
+      "verification": {
+        "all_values_checked": true,
+        "complete_eos_checked": true,
+        "cte": {
+          "direct": {
+            "canonical_sha256": "9f71140b372babe50aa12d15f52d84f1117a55efb958104395adbe453c9eff7d",
+            "rows": 97
+          },
+          "equal": true,
+          "rabbit": {
+            "canonical_sha256": "9f71140b372babe50aa12d15f52d84f1117a55efb958104395adbe453c9eff7d",
+            "rows": 97
+          }
+        },
+        "pyarrow_version": "25.0.1",
+        "rows": {
+          "direct": {
+            "batches": 977,
+            "canonical_sha256": "c7442edc063f46ddaa77d44642054ed4eb1af73de72150e8a55268823b998a04",
+            "nulls": 58823,
+            "rows": 1000000
+          },
+          "equal": true,
+          "rabbit": {
+            "batches": 977,
+            "canonical_sha256": "c7442edc063f46ddaa77d44642054ed4eb1af73de72150e8a55268823b998a04",
+            "nulls": 58823,
+            "rows": 1000000
+          }
+        }
+      }
+    },
+    "normal_receipt_sha256": "5dd42bb32fc4ae7ed9f9f18cb462bb973b7b6c3174f02d7b4b68dc5e494c1d42",
+    "race": {
+      "kelvo_binary_sha256": "46017aa50153059b39cffc921e842bf771fa53d1e3f1f19a0fee225bcb62cecb",
+      "kelvo_version": "Kelvo Go dev",
+      "measurements": {
+        "direct_cte": {
+          "arrow_bytes": 8872,
+          "arrow_file_sha256": "eb87e37be31e40d4acfaf6f576a4201aba71f7ec6d4a4469134df90c2a2b1443",
+          "elapsed_ns": 600177396,
+          "query_sha256": "f254498f868fe5a39075dba091671a933086c89e3eb31d06c04c6d96c53be547"
+        },
+        "direct_rows": {
+          "arrow_bytes": 48888192,
+          "arrow_file_sha256": "bd14c4a79fe83a886ba0cb489f91eff452e06569195a69dd2aa159888f6aa100",
+          "elapsed_ns": 4214066549,
+          "query_sha256": "15d26a229e3e5501ac095eab981483b78bc7ccbe1f71e377d7610e3aab29840f"
+        },
+        "rabbit_cte": {
+          "arrow_bytes": 8872,
+          "arrow_file_sha256": "eb87e37be31e40d4acfaf6f576a4201aba71f7ec6d4a4469134df90c2a2b1443",
+          "elapsed_ns": 730281000,
+          "query_sha256": "f254498f868fe5a39075dba091671a933086c89e3eb31d06c04c6d96c53be547"
+        },
+        "rabbit_rows": {
+          "arrow_bytes": 48888192,
+          "arrow_file_sha256": "bd14c4a79fe83a886ba0cb489f91eff452e06569195a69dd2aa159888f6aa100",
+          "elapsed_ns": 4386663106,
+          "query_sha256": "15d26a229e3e5501ac095eab981483b78bc7ccbe1f71e377d7610e3aab29840f"
+        }
+      },
+      "postgres_version": "PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+      "pyarrow_version": "25.0.1",
+      "rabbit_client_binary_sha256": "d69860c9167b49916197f1728d4c6f79a498ac5666ae1b2d153cbdc668db01c3",
+      "rows": 1000000,
+      "scope": "synthetic PostgreSQL fixture; native Kelvo CLI; verified source TLS; loopback direct versus Rabbit TLS tunnel",
+      "verification": {
+        "all_values_checked": true,
+        "complete_eos_checked": true,
+        "cte": {
+          "direct": {
+            "canonical_sha256": "9f71140b372babe50aa12d15f52d84f1117a55efb958104395adbe453c9eff7d",
+            "rows": 97
+          },
+          "equal": true,
+          "rabbit": {
+            "canonical_sha256": "9f71140b372babe50aa12d15f52d84f1117a55efb958104395adbe453c9eff7d",
+            "rows": 97
+          }
+        },
+        "pyarrow_version": "25.0.1",
+        "rows": {
+          "direct": {
+            "batches": 977,
+            "canonical_sha256": "c7442edc063f46ddaa77d44642054ed4eb1af73de72150e8a55268823b998a04",
+            "nulls": 58823,
+            "rows": 1000000
+          },
+          "equal": true,
+          "rabbit": {
+            "batches": 977,
+            "canonical_sha256": "c7442edc063f46ddaa77d44642054ed4eb1af73de72150e8a55268823b998a04",
+            "nulls": 58823,
+            "rows": 1000000
+          }
+        }
+      }
+    },
+    "race_receipt_sha256": "6f4e8a4f94f88c0cea1748a11dafb256bea98289521ff6c8ff441b018a6e6d1c"
+  },
+  "linux_validation": {
+    "binaries": {
+      "rabbit-client": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9",
+      "rabbit-client-race": "d69860c9167b49916197f1728d4c6f79a498ac5666ae1b2d153cbdc668db01c3",
+      "rabbit-server": "a6259275271c9b90e243683e0622b5569af402866751617899251133da0469a2"
+    },
+    "passed": true,
+    "phase": "native",
+    "source_sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c",
+    "steps": [
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.415,
+        "step": "client-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.966,
+        "step": "client-race-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 1.517,
+        "step": "server-build"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "4987df9b7dcee3eafc07ea1810a3284b6f4d72f8a8a9337cf9a6d4d7189744ae",
+        "seconds": 2.019,
+        "step": "client-normal"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "fa82542a5fcf675e2f5a91ebdf3ebcb9e9458b5b421790eaec49cae54841cfe8",
+        "seconds": 3.021,
+        "step": "client-race"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.265,
+        "step": "client-vet"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "cafe82a555d49bf3fb857f650a0fd068a76f58647d00c3ac8791ed3ecea41a26",
+        "seconds": 24.461,
+        "step": "server-normal"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "91b64dc5b756b3132a76dbbe61329faf5de3587253c364acb0d9b9a3550abdfc",
+        "seconds": 39.248,
+        "step": "server-race"
+      },
+      {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "seconds": 0.541,
+        "step": "server-vet"
+      }
+    ]
+  },
+  "remaining_evidence_limits": [
+    "WAN latency/loss and real private-host networks untested by this campaign",
+    "No production Rabbit-only RSS measurement",
+    "No long-duration tenant-concurrency soak",
+    "Separate final cleanup assertion validation is not part of the measured timing corpus"
+  ],
+  "revisions": {
+    "baseline_runtime": "ecf8753",
+    "candidate_runtime": "0ec4292",
+    "measurement_harness": "283ccd7",
+    "post_measurement_cleanup_harness_source_archive_sha256": "52976d31d173052c8af1cb019d6ba49db0d4fd80140ed357b450a97abfe4acbe"
+  },
+  "runs": [
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 188,
+          "nr_throttled": 114,
+          "system_usec": 11410439,
+          "throttled_usec": 6622553,
+          "usage_usec": 34135196,
+          "user_usec": 22724757
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27316224,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 326905856,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:18.146830+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 10,
+          "nr_throttled": 0,
+          "system_usec": 247005,
+          "throttled_usec": 0,
+          "usage_usec": 1202632,
+          "user_usec": 955627
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27045888,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 131706880,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:00.357982+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.813868867000565,
+      "log_bytes": 2355,
+      "log_sha256": "9dedef7c6454487615de790d40a9f627cee8f192a343a61ae2dafdfd4b69d7e1",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 4.41,
+            "dial-ns/stream": 79165.0,
+            "first-byte-ns/stream": 209733.0,
+            "ns/op": 231956.0,
+            "transfer-ns/stream": 4452.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.91,
+            "dial-ns/stream": 1015083.0,
+            "first-byte-ns/stream": 1083029.0,
+            "ns/op": 1120836.0,
+            "transfer-ns/stream": 3873.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.4,
+            "dial-ns/stream": 84102.0,
+            "first-byte-ns/stream": 2560386.0,
+            "ns/op": 2592256.0,
+            "transfer-ns/stream": 17325.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 22.02,
+            "dial-ns/stream": 153606.0,
+            "first-byte-ns/stream": 310705.0,
+            "ns/op": 464936.0,
+            "transfer-ns/stream": 3578.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.37,
+            "dial-ns/stream": 3123074.0,
+            "first-byte-ns/stream": 3806491.0,
+            "ns/op": 4313844.0,
+            "transfer-ns/stream": 2725.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.1,
+            "dial-ns/stream": 251372.0,
+            "first-byte-ns/stream": 72764275.0,
+            "ns/op": 101549494.0,
+            "transfer-ns/stream": 30869.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1160.54,
+            "dial-ns/stream": 142323.0,
+            "first-byte-ns/stream": 315478.0,
+            "ns/op": 57825532.0,
+            "transfer-ns/stream": 57465683.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 886.7,
+            "dial-ns/stream": 873737.0,
+            "first-byte-ns/stream": 937198.0,
+            "ns/op": 75683589.0,
+            "transfer-ns/stream": 74679416.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 707.23,
+            "dial-ns/stream": 132419.0,
+            "first-byte-ns/stream": 5569269.0,
+            "ns/op": 94889340.0,
+            "transfer-ns/stream": 89281882.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1961.33,
+            "dial-ns/stream": 184541.0,
+            "first-byte-ns/stream": 13893724.0,
+            "ns/op": 342159586.0,
+            "transfer-ns/stream": 291524641.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1251.46,
+            "dial-ns/stream": 5518424.0,
+            "first-byte-ns/stream": 34246936.0,
+            "ns/op": 536245675.0,
+            "transfer-ns/stream": 454664221.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 700.3,
+            "dial-ns/stream": 316371.0,
+            "first-byte-ns/stream": 96492610.0,
+            "ns/op": 958281902.0,
+            "transfer-ns/stream": 801209662.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 1,
+      "process_group_gone": true,
+      "run": 1,
+      "state": "passed",
+      "variant": "baseline"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 361,
+          "nr_throttled": 221,
+          "system_usec": 22573433,
+          "throttled_usec": 13653151,
+          "usage_usec": 66567497,
+          "user_usec": 43994063
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27721728,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 328331264,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:35.408843+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 189,
+          "nr_throttled": 114,
+          "system_usec": 11422745,
+          "throttled_usec": 6622553,
+          "usage_usec": 34164102,
+          "user_usec": 22741356
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27422720,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 326905856,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:18.190168+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.245310151018202,
+      "log_bytes": 2355,
+      "log_sha256": "df6123e70d929d0061580f4d7dd25658738da7d30f8af5f2df484f6979d81157",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 9.16,
+            "dial-ns/stream": 51543.0,
+            "first-byte-ns/stream": 95434.0,
+            "ns/op": 111847.0,
+            "transfer-ns/stream": 4833.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.31,
+            "dial-ns/stream": 694322.0,
+            "first-byte-ns/stream": 748561.0,
+            "ns/op": 780523.0,
+            "transfer-ns/stream": 5337.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.56,
+            "dial-ns/stream": 77671.0,
+            "first-byte-ns/stream": 1800049.0,
+            "ns/op": 1827553.0,
+            "transfer-ns/stream": 6358.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 25.58,
+            "dial-ns/stream": 139671.0,
+            "first-byte-ns/stream": 274583.0,
+            "ns/op": 400292.0,
+            "transfer-ns/stream": 2804.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 3.01,
+            "dial-ns/stream": 2405714.0,
+            "first-byte-ns/stream": 2812494.0,
+            "ns/op": 3396617.0,
+            "transfer-ns/stream": 1606.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.12,
+            "dial-ns/stream": 235086.0,
+            "first-byte-ns/stream": 49554736.0,
+            "ns/op": 81952795.0,
+            "transfer-ns/stream": 16311.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1167.9,
+            "dial-ns/stream": 143832.0,
+            "first-byte-ns/stream": 416011.0,
+            "ns/op": 57461273.0,
+            "transfer-ns/stream": 56999918.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 918.71,
+            "dial-ns/stream": 880789.0,
+            "first-byte-ns/stream": 934944.0,
+            "ns/op": 73046864.0,
+            "transfer-ns/stream": 72049925.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 706.79,
+            "dial-ns/stream": 134279.0,
+            "first-byte-ns/stream": 3913947.0,
+            "ns/op": 94949036.0,
+            "transfer-ns/stream": 90995515.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1939.68,
+            "dial-ns/stream": 188519.0,
+            "first-byte-ns/stream": 11964719.0,
+            "ns/op": 345979833.0,
+            "transfer-ns/stream": 290538502.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1295.85,
+            "dial-ns/stream": 4486485.0,
+            "first-byte-ns/stream": 27755035.0,
+            "ns/op": 517874409.0,
+            "transfer-ns/stream": 454068199.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 714.04,
+            "dial-ns/stream": 215218.0,
+            "first-byte-ns/stream": 64844118.0,
+            "ns/op": 939843626.0,
+            "transfer-ns/stream": 839514452.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 1,
+      "process_group_gone": true,
+      "run": 2,
+      "state": "passed",
+      "variant": "candidate"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 537,
+          "nr_throttled": 328,
+          "system_usec": 33866740,
+          "throttled_usec": 20261087,
+          "usage_usec": 99810206,
+          "user_usec": 65943466
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27742208,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 328331264,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:53.048721+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 361,
+          "nr_throttled": 221,
+          "system_usec": 22585088,
+          "throttled_usec": 13653151,
+          "usage_usec": 66594497,
+          "user_usec": 44009409
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27574272,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 328331264,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:35.461617+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.613277281052433,
+      "log_bytes": 2355,
+      "log_sha256": "af9168a57be504120dfcc52626574fbdf4986719c06cda282fdfa934e8e46886",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 10.83,
+            "dial-ns/stream": 46899.0,
+            "first-byte-ns/stream": 82261.0,
+            "ns/op": 94590.0,
+            "transfer-ns/stream": 4702.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.28,
+            "dial-ns/stream": 706731.0,
+            "first-byte-ns/stream": 761607.0,
+            "ns/op": 797446.0,
+            "transfer-ns/stream": 2598.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.51,
+            "dial-ns/stream": 116799.0,
+            "first-byte-ns/stream": 1987243.0,
+            "ns/op": 2007417.0,
+            "transfer-ns/stream": 4618.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 20.77,
+            "dial-ns/stream": 148259.0,
+            "first-byte-ns/stream": 333436.0,
+            "ns/op": 493131.0,
+            "transfer-ns/stream": 2791.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.89,
+            "dial-ns/stream": 3961650.0,
+            "first-byte-ns/stream": 4677971.0,
+            "ns/op": 5423845.0,
+            "transfer-ns/stream": 2849.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.16,
+            "dial-ns/stream": 242935.0,
+            "first-byte-ns/stream": 40887851.0,
+            "ns/op": 62206779.0,
+            "transfer-ns/stream": 18754.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1174.53,
+            "dial-ns/stream": 143831.0,
+            "first-byte-ns/stream": 224724.0,
+            "ns/op": 57136827.0,
+            "transfer-ns/stream": 56869215.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 863.06,
+            "dial-ns/stream": 895678.0,
+            "first-byte-ns/stream": 953541.0,
+            "ns/op": 77757055.0,
+            "transfer-ns/stream": 76743621.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 722.17,
+            "dial-ns/stream": 131469.0,
+            "first-byte-ns/stream": 5578683.0,
+            "ns/op": 92927038.0,
+            "transfer-ns/stream": 87310194.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1968.58,
+            "dial-ns/stream": 209260.0,
+            "first-byte-ns/stream": 11273353.0,
+            "ns/op": 340900282.0,
+            "transfer-ns/stream": 303199032.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1223.23,
+            "dial-ns/stream": 7258616.0,
+            "first-byte-ns/stream": 35738269.0,
+            "ns/op": 548620042.0,
+            "transfer-ns/stream": 471851905.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 698.5,
+            "dial-ns/stream": 2405503.0,
+            "first-byte-ns/stream": 67073233.0,
+            "ns/op": 960760349.0,
+            "transfer-ns/stream": 853550194.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 2,
+      "process_group_gone": true,
+      "run": 3,
+      "state": "passed",
+      "variant": "candidate"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 714,
+          "nr_throttled": 440,
+          "system_usec": 44891689,
+          "throttled_usec": 26916253,
+          "usage_usec": 132459770,
+          "user_usec": 87568080
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27996160,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331341824,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:10.713120+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 538,
+          "nr_throttled": 328,
+          "system_usec": 33874068,
+          "throttled_usec": 20261087,
+          "usage_usec": 99840199,
+          "user_usec": 65966131
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 27852800,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 328331264,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:25:53.093187+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.64483356499113,
+      "log_bytes": 2355,
+      "log_sha256": "74eb1aee2598e8b247a8359702b9c51ec0fa2e11656829b571c06fb3bf1354e2",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 11.37,
+            "dial-ns/stream": 46334.0,
+            "first-byte-ns/stream": 73040.0,
+            "ns/op": 90096.0,
+            "transfer-ns/stream": 3537.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.3,
+            "dial-ns/stream": 702003.0,
+            "first-byte-ns/stream": 761149.0,
+            "ns/op": 786698.0,
+            "transfer-ns/stream": 2394.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.4,
+            "dial-ns/stream": 98492.0,
+            "first-byte-ns/stream": 2534208.0,
+            "ns/op": 2562808.0,
+            "transfer-ns/stream": 4934.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 24.95,
+            "dial-ns/stream": 152653.0,
+            "first-byte-ns/stream": 276164.0,
+            "ns/op": 410492.0,
+            "transfer-ns/stream": 2666.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.35,
+            "dial-ns/stream": 3249051.0,
+            "first-byte-ns/stream": 3704838.0,
+            "ns/op": 4355987.0,
+            "transfer-ns/stream": 2679.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.1,
+            "dial-ns/stream": 217196.0,
+            "first-byte-ns/stream": 55571248.0,
+            "ns/op": 100883615.0,
+            "transfer-ns/stream": 44833.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1173.53,
+            "dial-ns/stream": 145081.0,
+            "first-byte-ns/stream": 284905.0,
+            "ns/op": 57185541.0,
+            "transfer-ns/stream": 56858771.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 874.39,
+            "dial-ns/stream": 863189.0,
+            "first-byte-ns/stream": 917983.0,
+            "ns/op": 76749015.0,
+            "transfer-ns/stream": 75766623.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 704.57,
+            "dial-ns/stream": 144962.0,
+            "first-byte-ns/stream": 5524932.0,
+            "ns/op": 95247357.0,
+            "transfer-ns/stream": 89673692.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1937.82,
+            "dial-ns/stream": 213022.0,
+            "first-byte-ns/stream": 12255814.0,
+            "ns/op": 346311663.0,
+            "transfer-ns/stream": 304602691.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1287.03,
+            "dial-ns/stream": 6060366.0,
+            "first-byte-ns/stream": 30559397.0,
+            "ns/op": 521422340.0,
+            "transfer-ns/stream": 456719812.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 702.64,
+            "dial-ns/stream": 265849.0,
+            "first-byte-ns/stream": 96353017.0,
+            "ns/op": 955092247.0,
+            "transfer-ns/stream": 796981542.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 2,
+      "process_group_gone": true,
+      "run": 4,
+      "state": "passed",
+      "variant": "baseline"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 893,
+          "nr_throttled": 557,
+          "system_usec": 56433087,
+          "throttled_usec": 33397295,
+          "usage_usec": 165386165,
+          "user_usec": 108953077
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28024832,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331776000,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:28.646582+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 714,
+          "nr_throttled": 440,
+          "system_usec": 44903395,
+          "throttled_usec": 26916253,
+          "usage_usec": 132486930,
+          "user_usec": 87583534
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28119040,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331341824,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:10.758428+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.91361416701693,
+      "log_bytes": 2355,
+      "log_sha256": "edb523b9062b13e6fdee073f24c50bb388a5edbb9a1e03738278006316aa9e77",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 8.11,
+            "dial-ns/stream": 59076.0,
+            "first-byte-ns/stream": 106503.0,
+            "ns/op": 126236.0,
+            "transfer-ns/stream": 3975.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.28,
+            "dial-ns/stream": 722198.0,
+            "first-byte-ns/stream": 770375.0,
+            "ns/op": 801677.0,
+            "transfer-ns/stream": 2571.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.39,
+            "dial-ns/stream": 94848.0,
+            "first-byte-ns/stream": 2602711.0,
+            "ns/op": 2631651.0,
+            "transfer-ns/stream": 7836.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 24.13,
+            "dial-ns/stream": 146383.0,
+            "first-byte-ns/stream": 304190.0,
+            "ns/op": 424357.0,
+            "transfer-ns/stream": 3058.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.36,
+            "dial-ns/stream": 3214357.0,
+            "first-byte-ns/stream": 3920507.0,
+            "ns/op": 4336727.0,
+            "transfer-ns/stream": 2312.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.07,
+            "dial-ns/stream": 222496.0,
+            "first-byte-ns/stream": 81006376.0,
+            "ns/op": 136650422.0,
+            "transfer-ns/stream": 24561.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1149.55,
+            "dial-ns/stream": 149047.0,
+            "first-byte-ns/stream": 332297.0,
+            "ns/op": 58378497.0,
+            "transfer-ns/stream": 58003550.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 848.43,
+            "dial-ns/stream": 895672.0,
+            "first-byte-ns/stream": 943503.0,
+            "ns/op": 79097990.0,
+            "transfer-ns/stream": 78087941.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 683.42,
+            "dial-ns/stream": 150327.0,
+            "first-byte-ns/stream": 4852799.0,
+            "ns/op": 98196234.0,
+            "transfer-ns/stream": 93305244.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1897.26,
+            "dial-ns/stream": 234681.0,
+            "first-byte-ns/stream": 12123385.0,
+            "ns/op": 353715423.0,
+            "transfer-ns/stream": 307078535.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1268.58,
+            "dial-ns/stream": 6011162.0,
+            "first-byte-ns/stream": 33353268.0,
+            "ns/op": 529007145.0,
+            "transfer-ns/stream": 455884342.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 701.61,
+            "dial-ns/stream": 464038.0,
+            "first-byte-ns/stream": 100863164.0,
+            "ns/op": 956500882.0,
+            "transfer-ns/stream": 792751841.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 3,
+      "process_group_gone": true,
+      "run": 5,
+      "state": "passed",
+      "variant": "baseline"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1069,
+          "nr_throttled": 673,
+          "system_usec": 67494638,
+          "throttled_usec": 40131908,
+          "usage_usec": 198477766,
+          "user_usec": 130983128
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28078080,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331776000,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:46.207574+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 894,
+          "nr_throttled": 557,
+          "system_usec": 56437994,
+          "throttled_usec": 33397295,
+          "usage_usec": 165412776,
+          "user_usec": 108974781
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28131328,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331776000,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:28.687414+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.546008015051484,
+      "log_bytes": 2355,
+      "log_sha256": "a69de36edc60bb2b41f3ddc10c6a5d2b378c0601d1e21ce919d871f2f6aa2530",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 8.64,
+            "dial-ns/stream": 54811.0,
+            "first-byte-ns/stream": 99980.0,
+            "ns/op": 118470.0,
+            "transfer-ns/stream": 3658.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.25,
+            "dial-ns/stream": 728357.0,
+            "first-byte-ns/stream": 783102.0,
+            "ns/op": 816749.0,
+            "transfer-ns/stream": 3886.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.54,
+            "dial-ns/stream": 99119.0,
+            "first-byte-ns/stream": 1871571.0,
+            "ns/op": 1899418.0,
+            "transfer-ns/stream": 4716.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 24.13,
+            "dial-ns/stream": 127977.0,
+            "first-byte-ns/stream": 292048.0,
+            "ns/op": 424388.0,
+            "transfer-ns/stream": 2717.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 3.11,
+            "dial-ns/stream": 2367530.0,
+            "first-byte-ns/stream": 2692478.0,
+            "ns/op": 3290573.0,
+            "transfer-ns/stream": 1924.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.13,
+            "dial-ns/stream": 244520.0,
+            "first-byte-ns/stream": 31042666.0,
+            "ns/op": 79152561.0,
+            "transfer-ns/stream": 20375.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1167.22,
+            "dial-ns/stream": 136517.0,
+            "first-byte-ns/stream": 328103.0,
+            "ns/op": 57494842.0,
+            "transfer-ns/stream": 57122883.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 840.55,
+            "dial-ns/stream": 869602.0,
+            "first-byte-ns/stream": 912568.0,
+            "ns/op": 79839141.0,
+            "transfer-ns/stream": 78862136.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 703.58,
+            "dial-ns/stream": 138169.0,
+            "first-byte-ns/stream": 5064329.0,
+            "ns/op": 95381657.0,
+            "transfer-ns/stream": 90275999.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1938.31,
+            "dial-ns/stream": 184869.0,
+            "first-byte-ns/stream": 13995901.0,
+            "ns/op": 346223019.0,
+            "transfer-ns/stream": 305715132.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1271.8,
+            "dial-ns/stream": 4954943.0,
+            "first-byte-ns/stream": 28820074.0,
+            "ns/op": 527668495.0,
+            "transfer-ns/stream": 449917881.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 692.92,
+            "dial-ns/stream": 168077.0,
+            "first-byte-ns/stream": 65906026.0,
+            "ns/op": 968497715.0,
+            "transfer-ns/stream": 866272216.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 3,
+      "process_group_gone": true,
+      "run": 6,
+      "state": "passed",
+      "variant": "candidate"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1242,
+          "nr_throttled": 777,
+          "system_usec": 78682162,
+          "throttled_usec": 46440770,
+          "usage_usec": 231094965,
+          "user_usec": 152412803
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28168192,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:03.560005+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1069,
+          "nr_throttled": 673,
+          "system_usec": 67499914,
+          "throttled_usec": 40131908,
+          "usage_usec": 198505478,
+          "user_usec": 131005563
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28356608,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 331776000,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:26:46.263408+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.322533174068667,
+      "log_bytes": 2355,
+      "log_sha256": "7f559863a22be11b204915ec93a02fe5e61e9242c77093dd209c078946769599",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 8.66,
+            "dial-ns/stream": 57912.0,
+            "first-byte-ns/stream": 101433.0,
+            "ns/op": 118285.0,
+            "transfer-ns/stream": 3618.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.36,
+            "dial-ns/stream": 667088.0,
+            "first-byte-ns/stream": 723083.0,
+            "ns/op": 751567.0,
+            "transfer-ns/stream": 2578.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.53,
+            "dial-ns/stream": 92604.0,
+            "first-byte-ns/stream": 1887655.0,
+            "ns/op": 1922701.0,
+            "transfer-ns/stream": 12241.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 25.41,
+            "dial-ns/stream": 127659.0,
+            "first-byte-ns/stream": 289230.0,
+            "ns/op": 402963.0,
+            "transfer-ns/stream": 2574.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 3.04,
+            "dial-ns/stream": 2463940.0,
+            "first-byte-ns/stream": 2824394.0,
+            "ns/op": 3368235.0,
+            "transfer-ns/stream": 1635.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.16,
+            "dial-ns/stream": 260231.0,
+            "first-byte-ns/stream": 37647066.0,
+            "ns/op": 62647180.0,
+            "transfer-ns/stream": 14314.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1124.51,
+            "dial-ns/stream": 143546.0,
+            "first-byte-ns/stream": 408803.0,
+            "ns/op": 59678125.0,
+            "transfer-ns/stream": 59222918.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 874.58,
+            "dial-ns/stream": 918396.0,
+            "first-byte-ns/stream": 1189158.0,
+            "ns/op": 76732400.0,
+            "transfer-ns/stream": 75481277.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 719.37,
+            "dial-ns/stream": 138088.0,
+            "first-byte-ns/stream": 4754615.0,
+            "ns/op": 93288955.0,
+            "transfer-ns/stream": 88490477.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1879.67,
+            "dial-ns/stream": 180278.0,
+            "first-byte-ns/stream": 14962858.0,
+            "ns/op": 357025530.0,
+            "transfer-ns/stream": 312902566.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1273.89,
+            "dial-ns/stream": 4341685.0,
+            "first-byte-ns/stream": 30863448.0,
+            "ns/op": 526802984.0,
+            "transfer-ns/stream": 447624050.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 703.31,
+            "dial-ns/stream": 181396.0,
+            "first-byte-ns/stream": 62962181.0,
+            "ns/op": 954191081.0,
+            "transfer-ns/stream": 849622389.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 4,
+      "process_group_gone": true,
+      "run": 7,
+      "state": "passed",
+      "variant": "candidate"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1420,
+          "nr_throttled": 886,
+          "system_usec": 89942702,
+          "throttled_usec": 53044810,
+          "usage_usec": 263933233,
+          "user_usec": 173990530
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28098560,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:21.321453+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1243,
+          "nr_throttled": 777,
+          "system_usec": 78687671,
+          "throttled_usec": 46440770,
+          "usage_usec": 231123355,
+          "user_usec": 152435684
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28147712,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:03.602714+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.74416951800231,
+      "log_bytes": 2355,
+      "log_sha256": "01aaecfb353a9bd9190b25d08ecb9f3529b5571ef433d422308b17e3ebd0696a",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 8.44,
+            "dial-ns/stream": 59830.0,
+            "first-byte-ns/stream": 104368.0,
+            "ns/op": 121366.0,
+            "transfer-ns/stream": 3803.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.32,
+            "dial-ns/stream": 694913.0,
+            "first-byte-ns/stream": 747314.0,
+            "ns/op": 774495.0,
+            "transfer-ns/stream": 2466.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.4,
+            "dial-ns/stream": 75174.0,
+            "first-byte-ns/stream": 2509706.0,
+            "ns/op": 2532810.0,
+            "transfer-ns/stream": 4691.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 26.0,
+            "dial-ns/stream": 132464.0,
+            "first-byte-ns/stream": 262500.0,
+            "ns/op": 393789.0,
+            "transfer-ns/stream": 2442.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.83,
+            "dial-ns/stream": 2671671.0,
+            "first-byte-ns/stream": 3204830.0,
+            "ns/op": 3621811.0,
+            "transfer-ns/stream": 1761.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.1,
+            "dial-ns/stream": 200781.0,
+            "first-byte-ns/stream": 69096030.0,
+            "ns/op": 100356952.0,
+            "transfer-ns/stream": 81963.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1179.85,
+            "dial-ns/stream": 139499.0,
+            "first-byte-ns/stream": 327101.0,
+            "ns/op": 56879189.0,
+            "transfer-ns/stream": 56510059.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 889.38,
+            "dial-ns/stream": 987481.0,
+            "first-byte-ns/stream": 1259168.0,
+            "ns/op": 75455372.0,
+            "transfer-ns/stream": 74128923.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 696.69,
+            "dial-ns/stream": 139439.0,
+            "first-byte-ns/stream": 4921214.0,
+            "ns/op": 96324986.0,
+            "transfer-ns/stream": 91365578.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1971.21,
+            "dial-ns/stream": 275884.0,
+            "first-byte-ns/stream": 9785046.0,
+            "ns/op": 340445856.0,
+            "transfer-ns/stream": 296199082.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1256.55,
+            "dial-ns/stream": 6848259.0,
+            "first-byte-ns/stream": 34183188.0,
+            "ns/op": 534073064.0,
+            "transfer-ns/stream": 444623011.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 702.04,
+            "dial-ns/stream": 257196.0,
+            "first-byte-ns/stream": 102269764.0,
+            "ns/op": 955919035.0,
+            "transfer-ns/stream": 788847459.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 4,
+      "process_group_gone": true,
+      "run": 8,
+      "state": "passed",
+      "variant": "baseline"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13801599,
+          "sha256": "39eea3f510e17b226d69d40b07829cb55133820ea35d361c7bf95cf0a507131c"
+        },
+        "client_binary": {
+          "bytes": 10307655,
+          "sha256": "46b116379fe74dee0d37fb664155c7288bda4949f5662112737cdcf480c10935"
+        },
+        "source_archive": {
+          "bytes": 3041280,
+          "sha256": "fcfc081180baad427d6a36c566139d7b25a3ea98b683a61324b253b2e64a3778"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1598,
+          "nr_throttled": 993,
+          "system_usec": 101161809,
+          "throttled_usec": 59326172,
+          "usage_usec": 296822648,
+          "user_usec": 195660839
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28442624,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:39.152066+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1420,
+          "nr_throttled": 886,
+          "system_usec": 89954757,
+          "throttled_usec": 53044810,
+          "usage_usec": 263961415,
+          "user_usec": 174006657
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28033024,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:21.365693+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.81319471797906,
+      "log_bytes": 2355,
+      "log_sha256": "ca86e97474cb5b0df0af3875e44afcf2557568473a19e5659c049b5251a85c38",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 9.45,
+            "dial-ns/stream": 53210.0,
+            "first-byte-ns/stream": 88761.0,
+            "ns/op": 108399.0,
+            "transfer-ns/stream": 4854.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.35,
+            "dial-ns/stream": 678728.0,
+            "first-byte-ns/stream": 730008.0,
+            "ns/op": 755734.0,
+            "transfer-ns/stream": 2297.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.4,
+            "dial-ns/stream": 118984.0,
+            "first-byte-ns/stream": 2500447.0,
+            "ns/op": 2539284.0,
+            "transfer-ns/stream": 18911.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 24.17,
+            "dial-ns/stream": 148343.0,
+            "first-byte-ns/stream": 288062.0,
+            "ns/op": 423594.0,
+            "transfer-ns/stream": 2683.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.46,
+            "dial-ns/stream": 3133390.0,
+            "first-byte-ns/stream": 3711626.0,
+            "ns/op": 4168895.0,
+            "transfer-ns/stream": 1787.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.09,
+            "dial-ns/stream": 171121.0,
+            "first-byte-ns/stream": 70907377.0,
+            "ns/op": 117838443.0,
+            "transfer-ns/stream": 16043.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1179.91,
+            "dial-ns/stream": 143225.0,
+            "first-byte-ns/stream": 306929.0,
+            "ns/op": 56876423.0,
+            "transfer-ns/stream": 56530841.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 825.39,
+            "dial-ns/stream": 863070.0,
+            "first-byte-ns/stream": 908098.0,
+            "ns/op": 81305264.0,
+            "transfer-ns/stream": 80335611.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 702.37,
+            "dial-ns/stream": 130148.0,
+            "first-byte-ns/stream": 4383049.0,
+            "ns/op": 95546168.0,
+            "transfer-ns/stream": 91128520.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1969.89,
+            "dial-ns/stream": 215337.0,
+            "first-byte-ns/stream": 11105869.0,
+            "ns/op": 340673807.0,
+            "transfer-ns/stream": 302826362.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1287.7,
+            "dial-ns/stream": 5304635.0,
+            "first-byte-ns/stream": 31670373.0,
+            "ns/op": 521151641.0,
+            "transfer-ns/stream": 440151193.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 694.94,
+            "dial-ns/stream": 202350.0,
+            "first-byte-ns/stream": 92647361.0,
+            "ns/op": 965676119.0,
+            "transfer-ns/stream": 811720729.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 5,
+      "process_group_gone": true,
+      "run": 9,
+      "state": "passed",
+      "variant": "baseline"
+    },
+    {
+      "artifacts_after": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "artifacts_before": {
+        "benchmark_binary": {
+          "bytes": 13955713,
+          "sha256": "c2744e1acb919409a198ce961ece7a426e16628ec24b046bce338f1c5d1e0b5f"
+        },
+        "client_binary": {
+          "bytes": 10316035,
+          "sha256": "acfcd9e589caa50e59ba60d4a5404e709382fea205d10b80df15257efed165f9"
+        },
+        "source_archive": {
+          "bytes": 3297280,
+          "sha256": "ac3afc1899abbceea3afe13bcbb9d437bf3e6ee08a9488c95996c2f9cc6f380c"
+        }
+      },
+      "cgroup_after": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1772,
+          "nr_throttled": 1101,
+          "system_usec": 112459814,
+          "throttled_usec": 65567784,
+          "usage_usec": 329397291,
+          "user_usec": 216937477
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28180480,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:56.500929+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "cgroup_before": {
+        "cpu.max": "200000 100000",
+        "cpu.stat": {
+          "burst_usec": 0,
+          "nice_usec": 0,
+          "nr_bursts": 0,
+          "nr_periods": 1599,
+          "nr_throttled": 993,
+          "system_usec": 101175738,
+          "throttled_usec": 59326172,
+          "usage_usec": 296852607,
+          "user_usec": 195676868
+        },
+        "cpuset.cpus.effective": "0-3",
+        "memory.current": 28282880,
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "memory.max": "4294967296",
+        "memory.peak": 338440192,
+        "memory_peak_scope": "Cumulative cgroup peak; not reset and not a per-run or per-process measurement.",
+        "observed_at": "2026-10-07T19:27:39.193778+00:00",
+        "scope": "Controller, benchmark and native client descendants in this cgroup; external fixture containers may be outside it."
+      },
+      "elapsed_seconds": 17.33314958808478,
+      "log_bytes": 2355,
+      "log_sha256": "d83f8089ec867de69ff1d4e7b63a79fd40e086ce12afeebf109694111f1bcc98",
+      "measurements": [
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 7.88,
+            "dial-ns/stream": 61143.0,
+            "first-byte-ns/stream": 105113.0,
+            "ns/op": 129947.0,
+            "transfer-ns/stream": 6993.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1.31,
+            "dial-ns/stream": 703991.0,
+            "first-byte-ns/stream": 756208.0,
+            "ns/op": 780434.0,
+            "transfer-ns/stream": 2352.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.56,
+            "dial-ns/stream": 96957.0,
+            "first-byte-ns/stream": 1800506.0,
+            "ns/op": 1831658.0,
+            "transfer-ns/stream": 6377.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 24.23,
+            "dial-ns/stream": 141754.0,
+            "first-byte-ns/stream": 298297.0,
+            "ns/op": 422532.0,
+            "transfer-ns/stream": 3090.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 2.82,
+            "dial-ns/stream": 2712359.0,
+            "first-byte-ns/stream": 3232010.0,
+            "ns/op": 3632386.0,
+            "transfer-ns/stream": 1925.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 0.13,
+            "dial-ns/stream": 278717.0,
+            "first-byte-ns/stream": 38772990.0,
+            "ns/op": 79109746.0,
+            "transfer-ns/stream": 23280.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 1024
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1169.05,
+            "dial-ns/stream": 142428.0,
+            "first-byte-ns/stream": 214943.0,
+            "ns/op": 57404397.0,
+            "transfer-ns/stream": 57145559.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 844.65,
+            "dial-ns/stream": 886924.0,
+            "first-byte-ns/stream": 1183409.0,
+            "ns/op": 79451995.0,
+            "transfer-ns/stream": 78201623.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 1,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 697.43,
+            "dial-ns/stream": 143104.0,
+            "first-byte-ns/stream": 4807636.0,
+            "ns/op": 96222881.0,
+            "transfer-ns/stream": 91376458.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1954.74,
+            "dial-ns/stream": 246319.0,
+            "first-byte-ns/stream": 16365039.0,
+            "ns/op": 343313293.0,
+            "transfer-ns/stream": 291598676.0
+          },
+          "mode": "tcp",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 1263.82,
+            "dial-ns/stream": 4298116.0,
+            "first-byte-ns/stream": 27621183.0,
+            "ns/op": 531001810.0,
+            "transfer-ns/stream": 459762358.0
+          },
+          "mode": "tls",
+          "payload_bytes_per_stream": 67108864
+        },
+        {
+          "concurrency": 10,
+          "iterations": 5,
+          "metrics": {
+            "MB/s": 706.33,
+            "dial-ns/stream": 223402.0,
+            "first-byte-ns/stream": 75585382.0,
+            "ns/op": 950102382.0,
+            "transfer-ns/stream": 832655121.0
+          },
+          "mode": "rabbit",
+          "payload_bytes_per_stream": 67108864
+        }
+      ],
+      "pair": 5,
+      "process_group_gone": true,
+      "run": 10,
+      "state": "passed",
+      "variant": "candidate"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "Opaque high-entropy loopback TCP/TLS payloads through the real native client and server, including metadata and checksums. This is not WAN, source database, shared-tenant or sustained production capacity.",
+  "statistics": [
+    {
+      "baseline_first_byte_ms_median_of_run_means": 2.534208,
+      "baseline_rate_MB_per_s": {
+        "max": 0.4042940449540234,
+        "median": 0.3995617307266093,
+        "min": 0.38910934618610143,
+        "run_means": [
+          0.39502271380604387,
+          0.3995617307266093,
+          0.38910934618610143,
+          0.4042940449540234,
+          0.4032632820905421
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 1.871571,
+      "candidate_rate_MB_per_s": {
+        "max": 0.5603120675570011,
+        "median": 0.5391125070942784,
+        "min": 0.5101082635047924,
+        "run_means": [
+          0.5603120675570011,
+          0.5101082635047924,
+          0.5391125070942784,
+          0.5325841095417332,
+          0.5590563303848207
+        ]
+      },
+      "concurrency": 1,
+      "mode": "rabbit",
+      "paired_rate_change_percent": {
+        "max": 41.84299990205482,
+        "median": 38.550387539762184,
+        "min": 27.666947126581064,
+        "pairs": [
+          41.84299990205482,
+          27.666947126581064,
+          38.550387539762184,
+          31.731870946132545,
+          38.633085434071205
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 34.92596153137435
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 70.907377,
+      "baseline_rate_MB_per_s": {
+        "max": 0.10203578123815478,
+        "median": 0.10083752854544012,
+        "min": 0.07493573638579762,
+        "run_means": [
+          0.10083752854544012,
+          0.1015031033533047,
+          0.07493573638579762,
+          0.10203578123815478,
+          0.08689863629647585
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 38.77299,
+      "candidate_rate_MB_per_s": {
+        "max": 0.16461228445857967,
+        "median": 0.1294404358219024,
+        "min": 0.12494997882622551,
+        "run_means": [
+          0.12494997882622551,
+          0.16461228445857967,
+          0.12937041923381354,
+          0.16345508289439364,
+          0.1294404358219024
+        ]
+      },
+      "concurrency": 10,
+      "mode": "rabbit",
+      "paired_rate_change_percent": {
+        "max": 72.64182014274938,
+        "median": 60.193885822155124,
+        "min": 23.912178956190576,
+        "pairs": [
+          23.912178956190576,
+          62.17463212490073,
+          72.64182014274938,
+          60.193885822155124,
+          48.955658383734416
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 28.36533946146156
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 4.921214,
+      "baseline_rate_MB_per_s": {
+        "max": 707.2329094079482,
+        "median": 702.371067356673,
+        "min": 683.4158629749487,
+        "run_means": [
+          707.2329094079482,
+          704.574553181565,
+          683.4158629749487,
+          696.6921749669395,
+          702.371067356673
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 4.807636,
+      "candidate_rate_MB_per_s": {
+        "max": 722.1672555623693,
+        "median": 706.788260599086,
+        "min": 697.4314560379875,
+        "run_means": [
+          706.788260599086,
+          722.1672555623693,
+          703.5824928057184,
+          719.3655883485885,
+          697.4314560379875
+        ]
+      },
+      "concurrency": 1,
+      "mode": "rabbit",
+      "paired_rate_change_percent": {
+        "max": 3.254437784194275,
+        "median": 2.4969255987692174,
+        "min": -0.7032765938488228,
+        "pairs": [
+          -0.06287162304627891,
+          2.4969255987692174,
+          2.9508577314818485,
+          3.254437784194275,
+          -0.7032765938488228
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": 0.6288973802746067
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 96.49261,
+      "baseline_rate_MB_per_s": {
+        "max": 702.6427469262035,
+        "median": 701.6079677802117,
+        "min": 694.9417374998791,
+        "run_means": [
+          700.3039905057082,
+          702.6427469262035,
+          701.6079677802117,
+          702.0350211982127,
+          694.9417374998791
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 65.906026,
+      "candidate_rate_MB_per_s": {
+        "max": 714.0428699358972,
+        "median": 703.306343313012,
+        "min": 692.9171123547773,
+        "run_means": [
+          714.0428699358972,
+          698.4974355972303,
+          692.9171123547773,
+          703.306343313012,
+          706.3329728606027
+        ]
+      },
+      "concurrency": 10,
+      "mode": "rabbit",
+      "paired_rate_change_percent": {
+        "max": 1.9618450867697979,
+        "median": 0.18109098213212604,
+        "min": -1.2387053489331112,
+        "pairs": [
+          1.9618450867697979,
+          -0.5899600255047655,
+          -1.2387053489331112,
+          0.18109098213212604,
+          1.6391640832661203
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": 0.24206902013581555
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 0.104368,
+      "baseline_rate_MB_per_s": {
+        "max": 11.365654413070503,
+        "median": 8.437288861789957,
+        "min": 4.414630360930522,
+        "run_means": [
+          4.414630360930522,
+          11.365654413070503,
+          8.111790614404766,
+          8.437288861789957,
+          9.446581610531462
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 0.09998,
+      "candidate_rate_MB_per_s": {
+        "max": 10.82566867533566,
+        "median": 8.657057107832777,
+        "min": 7.880135747650965,
+        "run_means": [
+          9.155364024068593,
+          10.82566867533566,
+          8.643538448552377,
+          8.657057107832777,
+          7.880135747650965
+        ]
+      },
+      "concurrency": 1,
+      "mode": "tcp",
+      "paired_rate_change_percent": {
+        "max": 107.3868767155131,
+        "median": 2.6047258739485324,
+        "min": -16.582145028357708,
+        "pairs": [
+          107.3868767155131,
+          -4.751030764351416,
+          6.555246053853292,
+          2.6047258739485324,
+          -16.582145028357708
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 2.6047258739485324
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 0.288062,
+      "baseline_rate_MB_per_s": {
+        "max": 26.00377359448842,
+        "median": 24.174091228865375,
+        "min": 22.02453671042896,
+        "run_means": [
+          22.02453671042896,
+          24.945674946162168,
+          24.130625864543298,
+          26.00377359448842,
+          24.174091228865375
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 0.292048,
+      "candidate_rate_MB_per_s": {
+        "max": 25.58132563228843,
+        "median": 24.23485085153314,
+        "min": 20.765273324937997,
+        "run_means": [
+          25.58132563228843,
+          20.765273324937997,
+          24.12886321008134,
+          25.41176237024243,
+          24.23485085153314
+        ]
+      },
+      "concurrency": 10,
+      "mode": "tcp",
+      "paired_rate_change_percent": {
+        "max": 16.149211075914582,
+        "median": -0.007304636323357538,
+        "min": -16.758021702144067,
+        "pairs": [
+          16.149211075914582,
+          -16.758021702144067,
+          -0.007304636323357538,
+          -2.276635820162154,
+          0.2513419101985326
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 0.2513419101985326
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 0.315478,
+      "baseline_rate_MB_per_s": {
+        "max": 1179.9065493271262,
+        "median": 1173.5285323260298,
+        "min": 1149.5476493682254,
+        "run_means": [
+          1160.540364764824,
+          1173.5285323260298,
+          1149.5476493682254,
+          1179.8491711968677,
+          1179.9065493271262
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 0.328103,
+      "candidate_rate_MB_per_s": {
+        "max": 1174.529065115919,
+        "median": 1167.897272307211,
+        "min": 1124.5136136565952,
+        "run_means": [
+          1167.897272307211,
+          1174.529065115919,
+          1167.2153825555342,
+          1124.5136136565952,
+          1169.054419298229
+        ]
+      },
+      "concurrency": 1,
+      "mode": "tcp",
+      "paired_rate_change_percent": {
+        "max": 1.5369291735769952,
+        "median": 0.0852584971160475,
+        "min": -4.690053516259097,
+        "pairs": [
+          0.6339208670159246,
+          0.0852584971160475,
+          1.5369291735769952,
+          -4.690053516259097,
+          -0.9197448759891924
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": -0.4798571030613985
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 12.123385,
+      "baseline_rate_MB_per_s": {
+        "max": 1971.2051951074418,
+        "median": 1961.3322772725123,
+        "min": 1897.2558061173374,
+        "run_means": [
+          1961.3322772725123,
+          1937.817035056079,
+          1897.2558061173374,
+          1971.2051951074418,
+          1969.8862260931026
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 13.995901,
+      "candidate_rate_MB_per_s": {
+        "max": 1968.5775443271707,
+        "median": 1939.6755995312594,
+        "min": 1879.6656922545567,
+        "run_means": [
+          1939.6755995312594,
+          1968.5775443271707,
+          1938.3131772645077,
+          1879.6656922545567,
+          1954.741204850463
+        ]
+      },
+      "concurrency": 10,
+      "mode": "tcp",
+      "paired_rate_change_percent": {
+        "max": 2.1640398208184974,
+        "median": -0.7688272064664825,
+        "min": -4.643834293866888,
+        "pairs": [
+          -1.1041819885496018,
+          1.5873794437048838,
+          2.1640398208184974,
+          -4.643834293866888,
+          -0.7688272064664825
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": -1.1041819885496018
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 0.761149,
+      "baseline_rate_MB_per_s": {
+        "max": 1.3549741046452852,
+        "median": 1.3016430701489008,
+        "min": 0.9136037743255927,
+        "run_means": [
+          0.9136037743255927,
+          1.3016430701489008,
+          1.2773224128919751,
+          1.3221518537885977,
+          1.3549741046452852
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 0.756208,
+      "candidate_rate_MB_per_s": {
+        "max": 1.3624866445706105,
+        "median": 1.3119408396677612,
+        "min": 1.2537511524348361,
+        "run_means": [
+          1.3119408396677612,
+          1.2840994876142084,
+          1.2537511524348361,
+          1.3624866445706105,
+          1.312090452235551
+        ]
+      },
+      "concurrency": 1,
+      "mode": "tls",
+      "paired_rate_change_percent": {
+        "max": 43.60063700877488,
+        "median": -1.3478028606325632,
+        "min": -3.1649056806853593,
+        "pairs": [
+          43.60063700877488,
+          -1.3478028606325632,
+          -1.845364977490016,
+          3.0506927526088967,
+          -3.1649056806853593
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 0.7911361997019917
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 3.711626,
+      "baseline_rate_MB_per_s": {
+        "max": 2.827314843320096,
+        "median": 2.3737529683502694,
+        "min": 2.350787548264033,
+        "run_means": [
+          2.3737529683502694,
+          2.350787548264033,
+          2.361227718507529,
+          2.827314843320096,
+          2.4562863780450215
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 2.824394,
+      "candidate_rate_MB_per_s": {
+        "max": 3.111920021224267,
+        "median": 3.0147643964568274,
+        "min": 1.8879595563663785,
+        "run_means": [
+          3.0147643964568274,
+          1.8879595563663785,
+          3.111920021224267,
+          3.0401679217750543,
+          2.8190836546556453
+        ]
+      },
+      "concurrency": 10,
+      "mode": "tls",
+      "paired_rate_change_percent": {
+        "max": 31.79245681527196,
+        "median": 14.770153832769983,
+        "min": -19.688210116623907,
+        "pairs": [
+          27.004133819032283,
+          -19.688210116623907,
+          31.79245681527196,
+          7.528453329414364,
+          14.770153832769983
+        ]
+      },
+      "payload_bytes_per_stream": 1024,
+      "ratio_of_median_rates_change_percent": 27.004133819032283
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 0.937198,
+      "baseline_rate_MB_per_s": {
+        "max": 889.3848406181073,
+        "median": 874.3938146958628,
+        "min": 825.3938391984067,
+        "run_means": [
+          886.7029812764297,
+          874.3938146958628,
+          848.426919571534,
+          889.3848406181073,
+          825.3938391984067
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 0.953541,
+      "candidate_rate_MB_per_s": {
+        "max": 918.7097203789612,
+        "median": 863.0582009568135,
+        "min": 840.5509272701219,
+        "run_means": [
+          918.7097203789612,
+          863.0582009568135,
+          840.5509272701219,
+          874.58314870902,
+          844.6466825659948
+        ]
+      },
+      "concurrency": 1,
+      "mode": "tls",
+      "paired_rate_change_percent": {
+        "max": 3.609634768167469,
+        "median": -0.9283053283351217,
+        "min": -1.6642617720806219,
+        "pairs": [
+          3.609634768167469,
+          -1.296396834988156,
+          -0.9283053283351217,
+          -1.6642617720806219,
+          2.3325644623523933
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": -1.296396834988156
+    },
+    {
+      "baseline_first_byte_ms_median_of_run_means": 33.353268,
+      "baseline_rate_MB_per_s": {
+        "max": 1287.7032080572494,
+        "median": 1268.5814290844787,
+        "min": 1251.4574406590784,
+        "run_means": [
+          1251.4574406590784,
+          1287.0346905351237,
+          1268.5814290844787,
+          1256.548373688436,
+          1287.7032080572494
+        ]
+      },
+      "candidate_first_byte_ms_median_of_run_means": 28.820074,
+      "candidate_rate_MB_per_s": {
+        "max": 1295.8520991524802,
+        "median": 1271.7997120521663,
+        "min": 1223.2302661666158,
+        "run_means": [
+          1295.8520991524802,
+          1223.2302661666158,
+          1271.7997120521663,
+          1273.8892154794628,
+          1263.8161063895432
+        ]
+      },
+      "concurrency": 10,
+      "mode": "tls",
+      "paired_rate_change_percent": {
+        "max": 3.547436536876658,
+        "median": 0.2536914772597765,
+        "min": -4.957475104418451,
+        "pairs": [
+          3.547436536876658,
+          -4.957475104418451,
+          0.2536914772597765,
+          1.3800377410162934,
+          -1.8550160874216126
+        ]
+      },
+      "payload_bytes_per_stream": 67108864,
+      "ratio_of_median_rates_change_percent": 0.2536914772597765
+    }
+  ],
+  "status": "measured"
+}
