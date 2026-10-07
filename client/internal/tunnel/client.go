@@ -2,62 +2,75 @@ package tunnel
 
 import (
 	"bufio"
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
-	"math"
+	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// TunnelClient represents a tunnel client that connects to our custom tunnel server
+const (
+	maxControlLine               = 4096
+	defaultConcurrentConnections = 64
+)
+
+// TunnelClient forwards opaque database streams. Config must not be changed
+// concurrently with Start or a dial; trust files may be replaced between dials.
 type TunnelClient struct {
-	Config         TunnelClientConfig
-	controlConn    net.Conn
-	wg             sync.WaitGroup
-	stopSignal     chan struct{}
-	tunnelID       string
-	remotePort     string
-	isConnected    bool
-	connectionMu   sync.RWMutex
-	reconnectCount int
-	stopped        bool // Prevent reconnect after user shutdown
+	Config TunnelClientConfig
+
+	mu      sync.Mutex
+	started bool
+	stopped bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+
+	tlsMu     sync.Mutex
+	tlsKey    tlsConfigKey
+	tlsConfig *tls.Config
 }
 
-// TunnelClientConfig holds configuration for our custom tunnel client
+// TunnelClientConfig holds configuration for the database tunnel client.
 type TunnelClientConfig struct {
-	ServerAddress        string
-	CAFile               string
-	ServerName           string
-	InsecureLocal        bool
-	LocalPort            string
-	Token                string
-	MaxReconnectAttempts int           // Maximum number of reconnection attempts (0 = infinite)
-	InitialRetryDelay    time.Duration // Initial delay between reconnection attempts
-	MaxRetryDelay        time.Duration // Maximum delay between reconnection attempts
-	HealthCheckInterval  time.Duration // Interval for health checks
-	ConnectionTimeout    time.Duration // Timeout for connection attempts
+	ServerAddress            string
+	CAFile                   string
+	ServerName               string
+	InsecureLocal            bool
+	LocalPort                string
+	Token                    string
+	MaxReconnectAttempts     int // Zero means unlimited retries.
+	InitialRetryDelay        time.Duration
+	MaxRetryDelay            time.Duration
+	HealthCheckInterval      time.Duration
+	ConnectionTimeout        time.Duration
+	MaxConcurrentConnections int // Zero selects the default of 64.
 }
 
-// NewTunnelClient creates a new tunnel client instance
 func NewTunnelClient(config TunnelClientConfig) (*TunnelClient, error) {
-	if config.Token == "" || config.Token == "default" || strings.ContainsAny(config.Token, "\r\n") {
-		return nil, fmt.Errorf("a valid tunnel token is required")
+	if config.Token == "" || config.Token == "default" || len(config.Token) >= maxControlLine || strings.ContainsAny(config.Token, "\r\n") {
+		return nil, errors.New("a valid tunnel token is required")
 	}
 	if config.ServerAddress == "" {
-		return nil, fmt.Errorf("server address is required")
+		return nil, errors.New("server address is required")
 	}
-
-	// Set default values for reconnection parameters
-	if config.MaxReconnectAttempts == 0 {
-		config.MaxReconnectAttempts = 10 // 0 means infinite, but we'll use 10 as default
+	if config.LocalPort == "" {
+		config.LocalPort = "5432"
+	}
+	if !validPort(config.LocalPort) {
+		return nil, errors.New("local port must be between 1 and 65535")
 	}
 	if config.InitialRetryDelay == 0 {
-		config.InitialRetryDelay = 1 * time.Second
+		config.InitialRetryDelay = time.Second
 	}
 	if config.MaxRetryDelay == 0 {
-		config.MaxRetryDelay = 60 * time.Second
+		config.MaxRetryDelay = time.Minute
 	}
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 30 * time.Second
@@ -65,381 +78,309 @@ func NewTunnelClient(config TunnelClientConfig) (*TunnelClient, error) {
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
-
-	return &TunnelClient{
-		Config:     config,
-		stopSignal: make(chan struct{}),
-	}, nil
+	if config.MaxConcurrentConnections == 0 {
+		config.MaxConcurrentConnections = defaultConcurrentConnections
+	}
+	if config.MaxReconnectAttempts < 0 || config.InitialRetryDelay < 0 || config.MaxRetryDelay < config.InitialRetryDelay ||
+		config.HealthCheckInterval < 0 || config.HealthCheckInterval > 24*time.Hour || config.ConnectionTimeout < 0 ||
+		config.MaxConcurrentConnections < 1 || config.MaxConcurrentConnections > 4096 {
+		return nil, errors.New("invalid tunnel retry, timeout or connection limit")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &TunnelClient{Config: config, ctx: ctx, cancel: cancel, done: make(chan struct{})}, nil
 }
 
-// Start starts the tunnel client with automatic reconnection
+func validPort(value string) bool {
+	port, err := strconv.Atoi(value)
+	return err == nil && port > 0 && port <= 65535 && strconv.Itoa(port) == value
+}
+
+// Start starts a single connection manager. Stop is safe before or after Start.
 func (tc *TunnelClient) Start() error {
-	// Start with initial connection attempt
-	tc.wg.Add(1)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if tc.stopped {
+		return errors.New("tunnel client has stopped")
+	}
+	if tc.started {
+		return errors.New("tunnel client already started")
+	}
+	tc.started = true
 	go tc.connectionManager()
-
 	return nil
 }
 
-// connectionManager manages the tunnel connection with automatic reconnection
 func (tc *TunnelClient) connectionManager() {
-	defer tc.wg.Done()
-
+	defer close(tc.done)
 	attempt := 0
-	for {
-		select {
-		case <-tc.stopSignal:
-			tc.connectionMu.Lock()
-			tc.stopped = true
-			tc.connectionMu.Unlock()
+	for tc.ctx.Err() == nil {
+		attempt++
+		established, err := tc.runSession(tc.ctx)
+		if tc.ctx.Err() != nil {
 			return
-		default:
-			attempt++
-			fmt.Printf("🔄 Connection attempt %d...\n", attempt)
-
-			if err := tc.connect(); err != nil {
-				fmt.Printf("❌ Connection failed: %v\n", err)
-
-				// Check if we should stop trying
-				if tc.Config.MaxReconnectAttempts > 0 && attempt >= tc.Config.MaxReconnectAttempts {
-					fmt.Printf("💥 Maximum reconnection attempts (%d) reached. Stopping.\n", tc.Config.MaxReconnectAttempts)
-					return
-				}
-
-				// Calculate exponential backoff delay
-				delay := tc.calculateBackoffDelay(attempt)
-				fmt.Printf("⏳ Waiting %v before next attempt...\n", delay)
-
-				select {
-				case <-tc.stopSignal:
-					tc.connectionMu.Lock()
-					tc.stopped = true
-					tc.connectionMu.Unlock()
-					return
-				case <-time.After(delay):
-					// Before retrying, check if stopped
-					tc.connectionMu.RLock()
-					if tc.stopped {
-						tc.connectionMu.RUnlock()
-						return
-					}
-					tc.connectionMu.RUnlock()
-					continue
-				}
-			} else {
-				// Connection successful, reset attempt counter
-				attempt = 0
-				tc.reconnectCount++
-
-				if tc.reconnectCount > 1 {
-					fmt.Printf("✅ Reconnected successfully! (reconnection #%d)\n", tc.reconnectCount-1)
-				} else {
-					fmt.Printf("✅ Connected successfully!\n")
-				}
-
-				// Start health monitoring
-				tc.wg.Add(1)
-				go tc.healthMonitor()
-
-				// Wait for connection to end
-				tc.waitForDisconnection()
-
-				// Before retrying, check if stopped
-				tc.connectionMu.RLock()
-				if tc.stopped {
-					tc.connectionMu.RUnlock()
-					return
-				}
-				tc.connectionMu.RUnlock()
-				fmt.Printf("🔌 Connection lost. Attempting to reconnect...\n")
-			}
+		}
+		if established {
+			attempt = 0
+		}
+		if err != nil {
+			log.Printf("Tunnel connection ended: %v", err)
+		}
+		if tc.Config.MaxReconnectAttempts > 0 && attempt >= tc.Config.MaxReconnectAttempts {
+			log.Printf("Tunnel retry limit reached")
+			return
+		}
+		timer := time.NewTimer(tc.calculateBackoffDelay(max(attempt, 1)))
+		select {
+		case <-tc.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
 	}
 }
 
-// connect establishes a connection to the tunnel server
-func (tc *TunnelClient) connect() error {
-	// Connect to tunnel server with timeout
-	conn, err := tc.dialServer()
+// runSession waits for all of this control connection's data streams before
+// returning. No goroutine or dial can migrate to the next control connection.
+func (tc *TunnelClient) runSession(parent context.Context) (established bool, err error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	conn, err := tc.dialServerContext(ctx)
 	if err != nil {
-		return fmt.Errorf("error connecting to tunnel server: %v", err)
+		return false, fmt.Errorf("connect to tunnel server: %w", err)
 	}
-
-	// Send authentication and tunnel request
-	fmt.Fprintf(conn, "%s\n", tc.Config.Token)
-	fmt.Fprintf(conn, "%s\n", tc.Config.LocalPort)
-
-	// Read response with timeout
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	reader := bufio.NewReader(conn)
-	response, err := reader.ReadString('\n')
+	defer conn.Close()
+	control := &sessionControl{conn: conn}
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(closed)
+		control.close(parent.Err() != nil)
+	})
+	defer func() {
+		if !stop() {
+			<-closed
+		}
+	}()
+	if err := control.write(tc.Config.Token+"\n"+tc.Config.LocalPort+"\n", tc.Config.ConnectionTimeout); err != nil {
+		return false, errors.New("write tunnel request")
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(tc.Config.ConnectionTimeout)); err != nil {
+		return false, err
+	}
+	reader := bufio.NewReaderSize(conn, maxControlLine)
+	response, err := controlLine(reader)
 	if err != nil {
-		conn.Close()
-		return fmt.Errorf("error reading server response: %v", err)
+		return false, errors.New("read tunnel response")
 	}
-	conn.SetReadDeadline(time.Time{}) // Clear deadline
-
-	response = strings.TrimSpace(response)
 	parts := strings.Split(response, ":")
+	if len(parts) != 3 || parts[0] != "SUCCESS" || parts[1] == "" || !validPort(parts[2]) {
+		return false, errors.New("tunnel request rejected or response invalid")
+	}
+	control.mu.Lock()
+	control.ready = true
+	control.mu.Unlock()
+	log.Printf("Tunnel established: local port %s, remote port %s", tc.Config.LocalPort, parts[2])
 
-	if len(parts) < 1 || parts[0] != "SUCCESS" {
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
 		conn.Close()
-		if len(parts) > 1 {
-			return fmt.Errorf("tunnel creation failed: %s", strings.Join(parts[1:], ":"))
+		workers.Wait()
+	}()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		tc.healthMonitor(ctx, cancel, control)
+	}()
+	slots := make(chan struct{}, tc.Config.MaxConcurrentConnections)
+	overloaded := false
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(3 * tc.Config.HealthCheckInterval)); err != nil {
+			return true, err
 		}
-		return fmt.Errorf("tunnel creation failed: %s", response)
+		line, err := controlLine(reader)
+		if err != nil {
+			return true, fmt.Errorf("read tunnel control: %w", err)
+		}
+		switch line {
+		case "PONG":
+			continue
+		case "CONNECT":
+			line, err = controlLine(reader)
+			if err != nil {
+				return true, errors.New("read data connection identifier")
+			}
+			id, ok := strings.CutPrefix(line, "CONN_ID:")
+			if !ok || !runtimeDigest.MatchString(id) {
+				return true, errors.New("invalid data connection identifier")
+			}
+			select {
+			case slots <- struct{}{}:
+				overloaded = false
+				workers.Add(1)
+				go func() {
+					defer workers.Done()
+					defer func() { <-slots }()
+					tc.handleDataConnection(ctx, id)
+				}()
+			default:
+				// The server's existing pairing timeout rejects this request.
+				// Keep processing PONGs and preserve established data streams.
+				if !overloaded {
+					log.Printf("Tunnel data connection limit reached")
+					overloaded = true
+				}
+			}
+		default:
+			return true, errors.New("invalid tunnel control message")
+		}
 	}
-
-	if len(parts) < 3 {
-		conn.Close()
-		return fmt.Errorf("invalid server response format: %s", response)
-	}
-
-	// Update connection state
-	tc.connectionMu.Lock()
-	tc.controlConn = conn
-	tc.tunnelID = parts[1]
-	tc.remotePort = parts[2]
-	tc.isConnected = true
-	tc.connectionMu.Unlock()
-
-	fmt.Printf("🎯 Tunnel established!\n")
-	fmt.Printf("   Tunnel ID: %s\n", tc.tunnelID)
-	fmt.Printf("   Local port %s → Remote port %s\n", tc.Config.LocalPort, tc.remotePort)
-	fmt.Printf("   Access via: %s (remote port %s)\n", tc.Config.ServerAddress, tc.remotePort)
-
-	// Start handling tunnel connections
-	tc.wg.Add(1)
-	go tc.handleTunnelConnections()
-
-	return nil
 }
 
-// calculateBackoffDelay calculates exponential backoff delay
-func (tc *TunnelClient) calculateBackoffDelay(attempt int) time.Duration {
-	// Exponential backoff: delay = initial * 2^(attempt-1)
-	delay := time.Duration(float64(tc.Config.InitialRetryDelay) * math.Pow(2, float64(attempt-1)))
-
-	// Cap at maximum delay
-	if delay > tc.Config.MaxRetryDelay {
-		delay = tc.Config.MaxRetryDelay
+func controlLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadSlice('\n')
+	if err != nil || len(line) > maxControlLine {
+		if err == nil || errors.Is(err, bufio.ErrBufferFull) {
+			err = errors.New("tunnel control line exceeds limit")
+		}
+		return "", err
 	}
+	return strings.TrimSuffix(strings.TrimSuffix(string(line), "\n"), "\r"), nil
+}
 
+type sessionControl struct {
+	conn  net.Conn
+	mu    sync.Mutex
+	ready bool
+}
+
+func (c *sessionControl) write(frame string, timeout time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return writeControl(c.conn, frame, timeout)
+}
+
+func (c *sessionControl) close(notify bool) {
+	if !notify {
+		c.conn.Close()
+		return
+	}
+	// Bound both lock acquisition and a stalled write. A user-requested Stop
+	// still sends the existing DISCONNECT frame when the peer is responsive.
+	timer := time.AfterFunc(100*time.Millisecond, func() { c.conn.Close() })
+	defer timer.Stop()
+	c.mu.Lock()
+	if notify && c.ready {
+		_ = writeControl(c.conn, "DISCONNECT\n", 100*time.Millisecond)
+	}
+	c.conn.Close()
+	c.mu.Unlock()
+}
+
+func writeControl(conn net.Conn, frame string, timeout time.Duration) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	n, err := io.WriteString(conn, frame)
+	if err == nil && n != len(frame) {
+		err = io.ErrShortWrite
+	}
+	clearErr := conn.SetWriteDeadline(time.Time{})
+	if err != nil {
+		return err
+	}
+	return clearErr
+}
+
+func (tc *TunnelClient) calculateBackoffDelay(attempt int) time.Duration {
+	delay := tc.Config.InitialRetryDelay
+	for i := 1; i < attempt && delay < tc.Config.MaxRetryDelay; i++ {
+		if delay > tc.Config.MaxRetryDelay/2 {
+			return tc.Config.MaxRetryDelay
+		}
+		delay *= 2
+	}
 	return delay
 }
 
-// healthMonitor monitors connection health and triggers reconnection if needed
-func (tc *TunnelClient) healthMonitor() {
-	defer tc.wg.Done()
-
+func (tc *TunnelClient) healthMonitor(ctx context.Context, cancel context.CancelFunc, control *sessionControl) {
 	ticker := time.NewTicker(tc.Config.HealthCheckInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
-		case <-tc.stopSignal:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !tc.isHealthy() {
-				fmt.Printf("🚨 Health check failed - connection appears dead\n")
-				tc.disconnect()
+			if err := control.write("PING\n", min(tc.Config.ConnectionTimeout, tc.Config.HealthCheckInterval)); err != nil {
+				cancel()
 				return
 			}
 		}
 	}
 }
 
-// isHealthy checks if the connection is healthy
-func (tc *TunnelClient) isHealthy() bool {
-	tc.connectionMu.RLock()
-	conn := tc.controlConn
-	connected := tc.isConnected
-	tc.connectionMu.RUnlock()
-
-	if !connected || conn == nil {
-		return false
-	}
-
-	// Send KEEPALIVE message to keep connection alive
-	// The server will respond but we don't wait for it here to avoid
-	// conflicts with handleTunnelConnections which is also reading
-	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	_, err := fmt.Fprintf(conn, "KEEPALIVE\n")
-	conn.SetWriteDeadline(time.Time{})
-
-	return err == nil
-}
-
-// waitForDisconnection waits until the connection is lost
-func (tc *TunnelClient) waitForDisconnection() {
-	for {
-		tc.connectionMu.RLock()
-		connected := tc.isConnected
-		tc.connectionMu.RUnlock()
-
-		if !connected {
-			break
-		}
-
-		select {
-		case <-tc.stopSignal:
-			return
-		case <-time.After(1 * time.Second):
-			continue
-		}
-	}
-}
-
-// disconnect closes the current connection
-func (tc *TunnelClient) disconnect() {
-	tc.connectionMu.Lock()
-	defer tc.connectionMu.Unlock()
-
-	tc.isConnected = false
-	if tc.controlConn != nil {
-		tc.controlConn.Close()
-		tc.controlConn = nil
-	}
-}
-
-// handleTunnelConnections handles incoming tunnel connection requests
-func (tc *TunnelClient) handleTunnelConnections() {
-	defer tc.wg.Done()
-	defer tc.disconnect()
-
-	reader := bufio.NewReader(tc.controlConn)
-
-	for {
-		select {
-		case <-tc.stopSignal:
-			return
-		default:
-			// Read messages from server
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if !strings.Contains(err.Error(), "use of closed network connection") {
-					fmt.Printf("📡 Control connection error: %v\n", err)
-				}
-				return
-			}
-
-			line = strings.TrimSpace(line)
-
-			if line == "CONNECT" {
-				// Read the connection ID
-				connIDLine, err := reader.ReadString('\n')
-				if err != nil {
-					fmt.Printf("❌ Error reading connection ID: %v\n", err)
-					return
-				}
-
-				connIDLine = strings.TrimSpace(connIDLine)
-				if !strings.HasPrefix(connIDLine, "CONN_ID:") {
-					fmt.Printf("⚠️ Invalid connection ID format: %s\n", connIDLine)
-					continue
-				}
-
-				connID := strings.TrimPrefix(connIDLine, "CONN_ID:")
-				fmt.Printf("🔗 New connection %s → local:%s\n", connID, tc.Config.LocalPort)
-
-				// Handle this connection in a separate goroutine
-				tc.wg.Add(1)
-				go tc.handleDataConnection(connID)
-			} else if line == "PONG" {
-				// Server keepalive response - connection is healthy
-				// Just ignore it, we already know we're connected
-			}
-		}
-	}
-}
-
-// handleDataConnection handles a data connection by establishing a new connection to the server
-func (tc *TunnelClient) handleDataConnection(connID string) {
-	defer tc.wg.Done()
-
-	// Establish a new connection to the server for data transfer
-	dataConn, err := tc.dialServer()
+func (tc *TunnelClient) handleDataConnection(ctx context.Context, id string) {
+	data, err := tc.dialServerContext(ctx)
 	if err != nil {
-		fmt.Printf("❌ Error connecting for data transfer: %v\n", err)
+		if ctx.Err() == nil {
+			log.Printf("Tunnel data connection failed: %v", err)
+		}
 		return
 	}
-	defer dataConn.Close()
-
-	// Send the connection ID to identify this data connection
-	fmt.Fprintf(dataConn, "DATA:%s\n", connID)
-
-	// Connect to local service
-	localConn, err := net.Dial("tcp", net.JoinHostPort("localhost", tc.Config.LocalPort))
-	if err != nil {
-		fmt.Printf("❌ Error connecting to local service on port %s: %v\n", tc.Config.LocalPort, err)
+	defer data.Close()
+	stopData := context.AfterFunc(ctx, func() { data.Close() })
+	defer stopData()
+	if err := writeControl(data, "DATA:"+id+"\n", tc.Config.ConnectionTimeout); err != nil {
 		return
 	}
-	defer localConn.Close()
-
-	fmt.Printf("🌉 Bridging connection %s\n", connID)
-
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		select {
-		case <-tc.stopSignal:
-			dataConn.Close()
-			localConn.Close()
-		case <-finished:
+	local, err := (&net.Dialer{Timeout: tc.Config.ConnectionTimeout}).DialContext(ctx, "tcp", net.JoinHostPort("localhost", tc.Config.LocalPort))
+	if err != nil {
+		if ctx.Err() == nil {
+			log.Printf("Tunnel local service connection failed: %v", err)
 		}
-	}()
+		return
+	}
+	defer local.Close()
+	stopLocal := context.AfterFunc(ctx, func() { local.Close() })
+	defer stopLocal()
+	bridgeData(data, local)
+}
 
-	// Copy data bidirectionally between local service and data connection
+// bridgeData retains clean EOF half-closes so a database may respond after the
+// caller finishes writing. A hard error tears down both directions immediately.
+func bridgeData(first, second net.Conn) {
+	defer first.Close()
+	defer second.Close()
 	done := make(chan struct{}, 2)
-	var bytesToServer, bytesToLocal int64
-
-	go func() {
-		defer func() { done <- struct{}{} }()
-		n, err := io.Copy(dataConn, localConn)
-		bytesToServer = n
-		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
-			fmt.Printf("⚠️ Error copying local→server: %v\n", err)
+	copyDirection := func(dst, src net.Conn) {
+		_, err := io.Copy(dst, src)
+		if err == nil {
+			if half, ok := dst.(interface{ CloseWrite() error }); ok {
+				err = half.CloseWrite()
+			} else {
+				err = errors.New("connection does not support half-close")
+			}
 		}
-		// Close write side to signal EOF to the remote
-		if conn, ok := dataConn.(interface{ CloseWrite() error }); ok {
-			conn.CloseWrite()
+		if err != nil {
+			dst.Close()
+			src.Close()
 		}
-	}()
-
-	go func() {
-		defer func() { done <- struct{}{} }()
-		n, err := io.Copy(localConn, dataConn)
-		bytesToLocal = n
-		if err != nil && err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
-			fmt.Printf("⚠️ Error copying server→local: %v\n", err)
-		}
-		// Close write side to signal EOF to the local service
-		if conn, ok := localConn.(interface{ CloseWrite() error }); ok {
-			conn.CloseWrite()
-		}
-	}()
-
-	// Wait for BOTH directions to finish
+		done <- struct{}{}
+	}
+	go copyDirection(first, second)
+	go copyDirection(second, first)
 	<-done
 	<-done
-	fmt.Printf("✅ Connection %s finished (↑%d ↓%d bytes)\n", connID, bytesToServer, bytesToLocal)
 }
 
-// Stop stops the tunnel client
+// Stop cancels connection setup and active streams, and waits for all workers.
 func (tc *TunnelClient) Stop() error {
-	fmt.Printf("🛑 Stopping tunnel client...\n")
-	close(tc.stopSignal)
-	tc.connectionMu.Lock()
-	if tc.controlConn != nil {
-		// Send disconnect message to server
-		tc.controlConn.Write([]byte("DISCONNECT\n"))
-	}
+	tc.mu.Lock()
 	tc.stopped = true
-	tc.connectionMu.Unlock()
-
-	tc.disconnect()
-	tc.wg.Wait()
-
-	fmt.Printf("✅ Tunnel client stopped\n")
+	tc.cancel()
+	started := tc.started
+	tc.mu.Unlock()
+	if started {
+		<-tc.done
+	}
 	return nil
 }
