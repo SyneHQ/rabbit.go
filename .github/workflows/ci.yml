@@ -1,0 +1,131 @@
+name: Linux validation
+
+on:
+  pull_request:
+  push:
+    branches: [sudo]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOMAXPROCS: "2"
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "1.26.8"
+          cache-dependency-path: |
+            client/go.sum
+            server/go.sum
+
+      - name: Verify fixture cleanup controller
+        run: python3 -m unittest discover -s scripts -p 'test_transport_fixtures.py' -v
+
+      - name: Validate both modules and native transports
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$(mktemp -d /tmp/rabbit-fixtures.XXXXXX)"
+          fixture_pid=""
+          controller_log=""
+          cleanup() {
+            result=$?
+            trap - EXIT
+            if [[ -n "$fixture_pid" ]]; then
+              kill -TERM "$fixture_pid" 2>/dev/null || true
+              if ! wait "$fixture_pid"; then
+                result=1
+              fi
+            fi
+            if ! python3 - "$fixture_root/cleanup.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as source:
+              receipt = json.load(source)
+          if receipt.get("complete") is not True:
+              raise SystemExit("Owned fixture cleanup was incomplete")
+          print("Owned fixture containers removed and absence verified")
+          PY
+            then
+              result=1
+            fi
+            if [[ -n "$controller_log" ]]; then
+              cat "$controller_log" || true
+            fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          # Keep the log outside ROOT while the controller verifies ROOT is empty.
+          controller_log="$(mktemp /tmp/rabbit-fixture-controller.XXXXXX)"
+          python3 scripts/transport_fixtures.py serve "$fixture_root" --max-seconds 2700 >"$controller_log" 2>&1 &
+          fixture_pid=$!
+          for attempt in $(seq 1 360); do
+            if [[ -f "$fixture_root/fixtures.json" ]]; then
+              break
+            fi
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then
+              cat "$controller_log"
+              exit 1
+            fi
+            sleep 1
+          done
+          test -f "$fixture_root/fixtures.json"
+          while IFS='=' read -r name value; do
+            export "$name=$value"
+          done < <(python3 - "$fixture_root/fixtures.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as source:
+              environment = json.load(source)
+          for name in ("SECURITY_TEST_DATABASE_URL", "RABBIT_TRANSPORT_DATABASE_URL", "RABBIT_TRANSPORT_REDIS_URL"):
+              print(name + "=" + environment[name])
+          PY
+          )
+          (
+            cd client
+            go test -p 2 -count=1 -timeout=10m ./...
+            go test -p 2 -race -count=1 -timeout=10m ./...
+            go vet -p 2 ./...
+            go build -p 2 -trimpath -o "$RUNNER_TEMP/rabbit-client" .
+            go build -p 2 -race -o "$RUNNER_TEMP/rabbit-client-race" .
+          )
+          export RABBIT_RUNTIME_CLIENT_TEST_BINARY="$RUNNER_TEMP/rabbit-client"
+          export RABBIT_DATABASE_CLIENT_TEST_BINARY="$RUNNER_TEMP/rabbit-client"
+          (
+            cd server
+            go test -p 2 -json -count=1 -timeout=10m ./... | tee "$RUNNER_TEMP/server-tests.jsonl"
+            export RABBIT_RUNTIME_CLIENT_TEST_BINARY="$RUNNER_TEMP/rabbit-client-race"
+            export RABBIT_DATABASE_CLIENT_TEST_BINARY="$RUNNER_TEMP/rabbit-client-race"
+            go test -p 2 -race -json -count=1 -timeout=10m ./... | tee "$RUNNER_TEMP/server-race-tests.jsonl"
+            go vet -p 2 ./...
+            go build -p 2 -trimpath -o "$RUNNER_TEMP/rabbit-server" .
+          )
+          python3 - "$RUNNER_TEMP/server-tests.jsonl" "$RUNNER_TEMP/server-race-tests.jsonl" <<'PY'
+          import json, sys
+          required = {
+              "TestRuntimeClientTLSIntegration", "TestNativeDatabaseTransport",
+              "TestRealMetadataMembership", "TestAtomicScopedRevocationRetainsHistory",
+              "TestStreamAccountingPreservesTunnelSession",
+          }
+          for path in sys.argv[1:]:
+              with open(path, encoding="utf-8") as source:
+                  events = [json.loads(line) for line in source]
+              passed = {event.get("Test") for event in events if event.get("Action") == "pass"}
+              missing = required - passed
+              if missing:
+                  raise SystemExit(f"Required live fixture checks did not pass in {path}: {sorted(missing)}")
+              skipped = sorted({event["Test"] for event in events if event.get("Action") == "skip" and "Test" in event})
+              print(f"Required native checks passed in {path}; skipped external gates: {skipped}")
+          PY
