@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -57,14 +58,25 @@ func transportCorpus() []byte {
 }
 
 type transportOutput struct {
-	mu   sync.Mutex
-	data []byte
+	mu           sync.Mutex
+	data         []byte
+	raceReported bool
+	raceTail     string
 }
 
 func (o *transportOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	n := len(p)
+	// Keep race detection independent of the diagnostic log cap, including
+	// markers split across pipe writes. Retain only a marker-sized suffix.
+	const marker = "WARNING: DATA RACE"
+	scan := o.raceTail + string(p)
+	o.raceReported = o.raceReported || strings.Contains(scan, marker)
+	if len(scan) >= len(marker) {
+		scan = scan[len(scan)-len(marker)+1:]
+	}
+	o.raceTail = strings.Clone(scan)
 	if remaining := 64<<10 - len(o.data); remaining > 0 {
 		if len(p) > remaining {
 			p = p[:remaining]
@@ -78,6 +90,22 @@ func (o *transportOutput) String() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return string(o.data)
+}
+
+func (o *transportOutput) RaceReported() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.raceReported
+}
+
+func TestTransportOutputDetectsRaceBeyondLogCap(t *testing.T) {
+	output := &transportOutput{}
+	_, _ = output.Write(bytes.Repeat([]byte("x"), 64<<10))
+	_, _ = output.Write([]byte("WARNING: DATA "))
+	_, _ = output.Write([]byte("RACE\n"))
+	if !output.RaceReported() || len(output.String()) != 64<<10 {
+		t.Fatal("capped diagnostics lost a split race detector report")
+	}
 }
 
 type transportSource struct {
@@ -387,16 +415,31 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	processDone := make(chan error, 1)
 	go func() { processDone <- command.Wait() }()
 	tb.Cleanup(func() {
-		command.Process.Signal(syscall.SIGTERM)
+		if err := command.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			tb.Errorf("cannot request native client shutdown: %v", err)
+		}
+		var waitErr error
+		exited := false
 		select {
-		case <-processDone:
+		case waitErr = <-processDone:
+			exited = true
 		case <-time.After(5 * time.Second):
-			command.Process.Kill()
+			tb.Error("native client exceeded graceful shutdown deadline; Kill was required")
+			if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				tb.Errorf("cannot kill native client after shutdown timeout: %v", err)
+			}
 			select {
-			case <-processDone:
+			case waitErr = <-processDone:
+				exited = true
 			case <-time.After(5 * time.Second):
 				tb.Error("native client did not exit after Kill")
 			}
+		}
+		if exited && waitErr != nil {
+			tb.Errorf("native client exited unsuccessfully: %v", waitErr)
+		}
+		if output.RaceReported() {
+			tb.Error("native client reported a data race")
 		}
 	})
 	deadline := time.Now().Add(15 * time.Second)
