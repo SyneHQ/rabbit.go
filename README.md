@@ -1,124 +1,95 @@
-## Your own tunnel -- 🐰 Rabbit - Your Own Private Tunnel System
+# Rabbit
 
-**Repository**: [https://github.com/SyneHQ/rabbit.go](https://github.com/SyneHQ/rabbit.go)
+Private TCP tunnels for databases and local services. Built by **SYNEHQ**.
 
-**Blog Post**: [How We Built Rabbit: A Production-Ready, Private TCP Tunnel for Devs Who Need Control](https://synehq.com/blog/how-we-built-rabbit-a-production-ready-private-tcp-tunnel-for-devs-who-need-control)
+![Rabbit](assets/img/banner.png)
 
-![](./assets/img/banner.png)
+Run the client beside a database on a customer's laptop, private server or VPS.
+It opens outbound TLS connections to your Rabbit server. Kelvo or another database
+client connects to an assigned port on that server using the original database protocol.
 
-## 🎯 Why We Built This
-
-So here's the story. We run this data platform called **Syne** where people can query their databases, visualize data, run analytics, and ask our AI questions about their datasets. Pretty cool stuff, right?
-
-But we hit a problem. Our users' databases and containers are running **locally** on their machines or private networks - not exposed to the internet (which is actually smart security-wise). So how do they connect their local PostgreSQL, MySQL, or whatever database to our cloud platform without opening up their firewall to the world?
-
-That's where **rabbit** comes in.
-
-## 🚇 What Rabbit Actually Does
-
-Think of rabbit as your personal, private version of ngrok - but built specifically for **production use** and **private networks**. No more sketchy public tunnels or trusting third-party services with your sensitive database connections.
-
-Here's how it works in practice:
-
-1. **You run rabbit server** on a VPS or cloud instance you control
-2. **Your users run rabbit client** on their local machines with a token you give them  
-3. **Boom!** Their local database is now accessible through a persistent port on your server
-4. **Your platform** (like Syne) connects to that port and can query their data securely
-
-## 🔐 The Token System (Because Security Matters)
-
-We're not messing around with security here. Every connection needs a **token** that you generate and distribute:
-
-- **Admins** use the rabbit server's API to create tokens
-- **Teams** can have multiple tokens (perfect for different environments)
-- **One token = one persistent port** - no sharing, no conflicts
-- **Want to free up a port?** Delete the token. That's it.
-
-This means you have complete control over who can tunnel what, and tokens can't step on each other's toes.
-
-## 🚀 Real-World Usage
-
-We've battle-tested this thing:
-
-✅ **Private networks**: Works beautifully. No firewall nonsense needed.  
-✅ **Public networks**: Yep, tested that too. Handles the crazy internet just fine.  
-✅ **Production workloads**: Database connections, web services, APIs - all good.  
-✅ **Multiple users**: Teams can run concurrent tunnels without conflicts.
-
-## Architecture
-
-For a full technical breakdown, see [TUNNEL_SYSTEM_SUMMARY.md](./TUNNEL_SYSTEM_SUMMARY.md)
-
-## 🛠️ Quick Start
-
-### Server Setup (Run this on your VPS)
-```bash
-# Clone and build
-git clone https://github.com/SyneHQ/rabbit.go
-cd rabbit.go/server
-go build -o rabbit.go
-
-# Start the server
-./rabbit.go server --bind 0.0.0.0 --port 9999 --api-port 3422
+```text
+Kelvo / database client
+        |
+        | private database ingress (loopback by default)
+        v
+Rabbit server  <====== verified TLS 1.3 ======  Rabbit client --> private database
+              outbound connections from the customer's machine
 ```
 
-### Client Setup (Your users run this) (thing that lives in /client folder)
-```bash
-# Connect their local database
-./rabbit.go tunnel --server your-server.com:9999 --local-port 5432 --token their-token-here
+Rabbit forwards bytes. Query execution, database authentication and connection
+pooling stay with the database client. Database TLS can remain enabled inside the tunnel.
+
+## Start a tunnel
+
+Build with Go 1.26.8 from the repository root:
+
+```sh
+(cd server && go build -o ../rabbit-server .)
+(cd client && go build -o ../rabbit-client .)
 ```
 
-### Generate Tokens (Admin)
-```bash
-# Create team and tokens via API
-curl -X POST http://localhost:3422/api/teams -d '{"name":"Development Team"}'
-curl -X POST http://localhost:3422/api/tokens -d '{"team":"Development Team"}'
+Configure the server's metadata PostgreSQL and Redis connections, server certificate
+and management credential through your secret manager or service environment:
+
+```sh
+# Required: DATABASE_URL, REDIS_URL, RABBIT_SERVICE_TOKEN (at least 32 characters)
+export RABBIT_TLS_CERT_FILE=/etc/rabbit/server.crt
+export RABBIT_TLS_KEY_FILE=/etc/rabbit/server.key
+export ENVIRONMENT=production
+
+./rabbit-server server --bind 0.0.0.0 --port 9999 \
+  --tunnel-bind 127.0.0.1 --api-bind 127.0.0.1 --api-port 8080
 ```
 
-### Get tokens and ports for a team
-```bash
-curl -X GET  http://localhost:3422/api/v1/teams/:teamId/tokens
+The metadata database must contain Rabbit's tables and your application's team and
+membership records. The current standalone migration does not provision the full
+identity schema. See [deployment notes](docs/private-database-transport.md#metadata-and-management).
+
+Issue a team-scoped tunnel token through the authenticated management API, then
+start the client on the machine that can reach the database:
+
+```sh
+# Set RABBIT_TOKEN through your service's secret environment.
+./rabbit-client tunnel --server rabbit.example.com:9999 \
+  --local-port 5432 --max-connections 64 --max-retries 0
 ```
 
-## 🎯 Perfect For
+Use `--ca-file /etc/rabbit/ca.pem` for a private CA. Point Kelvo's native database
+connector at the assigned Rabbit ingress port, retaining the database credentials
+and verified database TLS settings. The tunnel token is separate from those credentials.
 
-- **Data platforms** like Syne that need secure access to user databases
-- **Development teams** sharing local services securely  
-- **Staging environments** that need to connect to production-like data
-- **Analytics platforms** accessing private datasets
-- **Any use case** where you need reliable, private tunneling
+## Operating limits
 
-## 🔥 Why Not Just Use ngrok?
+- Database ingress and management API bind to loopback by default. For separate
+  workers, select a private ingress IP and restrict access to those workers.
+- The client allows 64 simultaneous streams by default. Excess requests time out;
+  it does not silently queue unlimited work or replay queries after reconnecting.
+- TLS session reuse reduces repeated handshakes. Traffic stays encrypted and
+  certificate verification remains enabled.
+- Idle deadline updates are coalesced; explicit deadlines remain upper bounds.
+- Active queries can fail during disconnection. Application retries must account
+  for whether a write already committed.
 
-Good question! Here's why we built our own:
+## Documentation
 
-| ngrok | rabbit |
-|-------|--------|
-| 🤷‍♂️ Trust a third party | 🔒 **You control everything** |
-| 💸 Pay per tunnel | 💰 **Free (your infrastructure)** |
-| 🌐 Public subdomains | 🏠 **Private persistent ports** |
-| 📊 Limited logs/control | 📈 **Full monitoring & APIs** |
-| 🎲 Session-based | 💾 **Database-backed persistence** |
+| Topic | Guide |
+| --- | --- |
+| Private databases, Kelvo and secure deployment | [Transport guide](docs/private-database-transport.md) |
+| Client flags, trust and reconnect behavior | [Client usage](client/TUNNEL_CLIENT_USAGE.md) |
+| Control channel and database stream lifecycle | [Architecture](TUNNEL_SYSTEM_SUMMARY.md) |
+| Measured transport overhead | [Before and after](docs/transport-performance.md) |
+| Tests, benchmarks and evidence limits | [Transport validation](docs/transport-validation.md) |
+| Notebook runtime protocol | [Runtime transport](docs/notebook-runtime-v2-transport.md) |
+| Notebook launcher | [Runtime launcher](docs/notebook-runtime-launcher.md) |
 
-## 🚧 Production Features
+Performance depends on the source database, network, row encoding and concurrency.
+Loopback transport results do not establish WAN throughput or production capacity.
 
-This isn't just a toy project. Rabbit includes:
+## Contribute
 
-- **🔄 Auto-restoration**: Server restarts? Tunnels automatically restore
-- **🔗 Seamless reconnection**: Clients reconnect without port conflicts  
-- **📊 Database logging**: All connections tracked and monitored
-- **🐳 Docker ready**: Production deployment with containers
-- **🔍 Health checks**: API endpoints for monitoring
-- **⚡ Redis caching**: Fast session management
+Changes should preserve database bytes, tenant boundaries, cancellation and
+half-close behavior. Run both Go modules' tests, race detector and vet; include
+reproducible measurements for performance changes. See the validation guide.
 
-## 🤝 Contributing
-
-Found a bug? Want a feature? We're open to contributions! Check out our [GitHub repo](https://github.com/SyneHQ/rabbit.go) and feel free to open issues or submit PRs.
-
-## 📜 License
-
-MIT License - use it however you want. See [LICENSE](LICENSE) for details.
-
----
-
-**Built with ❤️ by the team at SyneHQ for anyone who needs reliable, private tunneling.** 
+[MIT license](LICENSE).
