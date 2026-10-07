@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +42,7 @@ func DefaultSecurityConfig() SecurityConfig {
 		MaxConnectionsPerIP:   100,
 		MaxConnectionsPerHour: 10000,
 		ConnectionWindow:      time.Hour,
-		MaxGlobalConnections:  1000000,
+		MaxGlobalConnections:  4096,
 		BurstThreshold:        10000,
 		BurstWindow:           time.Minute,
 		HandshakeTimeout:      60 * time.Second,
@@ -49,6 +51,22 @@ func DefaultSecurityConfig() SecurityConfig {
 		MaxViolationsPerHour:  100,
 		TrustedNetworks:       strings.Split(os.Getenv("TRUSTED_NETWORKS"), ","),
 	}
+}
+
+// SecurityConfigFromEnv applies the operator's process-wide admission ceiling.
+// The default is a safety ceiling, not a promise that a host can sustain it.
+func SecurityConfigFromEnv() (SecurityConfig, error) {
+	config := DefaultSecurityConfig()
+	value, exists := os.LookupEnv("RABBIT_MAX_CONNECTIONS")
+	if !exists {
+		return config, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > 1_000_000 || strconv.Itoa(limit) != value {
+		return SecurityConfig{}, fmt.Errorf("RABBIT_MAX_CONNECTIONS must be an integer between 1 and 1000000")
+	}
+	config.MaxGlobalConnections = limit
+	return config, nil
 }
 
 // IPStats tracks statistics for an IP address
@@ -72,14 +90,19 @@ type SecurityMiddleware struct {
 	// Cleanup ticker
 	cleanupTicker *time.Ticker
 	stopCleanup   chan struct{}
+	cleanupDone   chan struct{}
+	stopOnce      sync.Once
 }
 
 // NewSecurityMiddleware creates a new security middleware
 func NewSecurityMiddleware(config SecurityConfig) *SecurityMiddleware {
+	// Runtime trust updates must not mutate the caller's configuration slice.
+	config.TrustedNetworks = append([]string(nil), config.TrustedNetworks...)
 	sm := &SecurityMiddleware{
 		config:      config,
 		ipStats:     make(map[string]*IPStats),
 		stopCleanup: make(chan struct{}),
+		cleanupDone: make(chan struct{}),
 	}
 
 	// Parse trusted networks
@@ -97,6 +120,9 @@ func (sm *SecurityMiddleware) parseTrustedNetworks() {
 	sm.trustedNets = make([]*net.IPNet, 0, len(sm.config.TrustedNetworks))
 
 	for _, cidr := range sm.config.TrustedNetworks {
+		if strings.TrimSpace(cidr) == "" {
+			continue
+		}
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
 			log.Printf("⚠️ Invalid trusted network CIDR '%s': %v", cidr, err)
@@ -108,7 +134,7 @@ func (sm *SecurityMiddleware) parseTrustedNetworks() {
 	log.Printf("🔒 Loaded %d trusted networks", len(sm.trustedNets))
 }
 
-// isTrustedIP checks if an IP is in the trusted networks
+// isTrustedIP requires sm.mu to be held while checking runtime trust updates.
 func (sm *SecurityMiddleware) isTrustedIP(ip net.IP) bool {
 	for _, network := range sm.trustedNets {
 		if network.Contains(ip) {
@@ -127,32 +153,30 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 
 	clientIP := clientAddr.IP.String()
 
-	// Check if IP is trusted - if so, allow with minimal logging
-	if sm.isTrustedIP(clientAddr.IP) {
-		sm.mu.Lock()
-		sm.globalConnections++
-		sm.mu.Unlock()
-
-		// Still track basic stats for trusted IPs but don't apply restrictions
-		sm.updateTrustedIPStats(clientIP)
-
-		log.Printf("🔐 Trusted connection allowed from %s (global: %d)", clientIP, sm.globalConnections)
-		return nil
-	}
-
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	// Trust bypasses per-IP rate limits, never the process capacity limit.
+	// Reject before allocating per-IP state when the server is already full.
+	if sm.globalConnections >= sm.config.MaxGlobalConnections {
+		return fmt.Errorf("server connection limit reached")
+	}
 
 	// Initialize IP stats if not exists
 	if sm.ipStats[clientIP] == nil {
-		sm.ipStats[clientIP] = &IPStats{
-			HourlyConnections: make([]time.Time, 0),
-			Violations:        make([]time.Time, 0),
-		}
+		sm.ipStats[clientIP] = &IPStats{}
 	}
 
 	stats := sm.ipStats[clientIP]
 	now := time.Now()
+	if sm.isTrustedIP(clientAddr.IP) {
+		stats.CurrentConnections++
+		stats.LastActivity = now
+		// A trusted client needs no rate history. In particular, pooled DB
+		// connections must not grow a timestamp slice without a per-IP bound.
+		stats.HourlyConnections = nil
+		sm.globalConnections++
+		return nil
+	}
 
 	// Check if IP is blacklisted
 	if stats.IsBlacklisted && now.Before(stats.BlacklistUntil) {
@@ -160,15 +184,9 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 	}
 
 	// Remove blacklist if expired
-	if stats.IsBlacklisted && now.After(stats.BlacklistUntil) {
+	if stats.IsBlacklisted && !now.Before(stats.BlacklistUntil) {
 		stats.IsBlacklisted = false
 		log.Printf("🔓 IP %s removed from blacklist", clientIP)
-	}
-
-	// Check global connection limit
-	if sm.globalConnections >= sm.config.MaxGlobalConnections {
-		sm.recordViolation(clientIP, stats, "global connection limit exceeded")
-		return fmt.Errorf("server connection limit reached")
 	}
 
 	// Check per-IP concurrent connection limit
@@ -198,34 +216,7 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 	stats.LastActivity = now
 	sm.globalConnections++
 
-	log.Printf("🔐 Connection allowed from %s (concurrent: %d, hourly: %d, global: %d)",
-		clientIP, stats.CurrentConnections, len(stats.HourlyConnections), sm.globalConnections)
-
 	return nil
-}
-
-// updateTrustedIPStats updates basic stats for trusted IPs without restrictions
-func (sm *SecurityMiddleware) updateTrustedIPStats(clientIP string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	// Initialize IP stats if not exists
-	if sm.ipStats[clientIP] == nil {
-		sm.ipStats[clientIP] = &IPStats{
-			HourlyConnections: make([]time.Time, 0),
-			Violations:        make([]time.Time, 0),
-		}
-	}
-
-	stats := sm.ipStats[clientIP]
-	now := time.Now()
-
-	stats.CurrentConnections++
-	stats.HourlyConnections = append(stats.HourlyConnections, now)
-	stats.LastActivity = now
-
-	// Clean old data periodically
-	sm.cleanOldConnections(stats, now)
 }
 
 // RecordConnectionClosed should be called when a connection is closed
@@ -243,12 +234,11 @@ func (sm *SecurityMiddleware) RecordConnectionClosed(conn net.Conn) {
 	if stats := sm.ipStats[clientIP]; stats != nil {
 		if stats.CurrentConnections > 0 {
 			stats.CurrentConnections--
+			if sm.globalConnections > 0 {
+				sm.globalConnections--
+			}
 		}
 		stats.LastActivity = time.Now()
-	}
-
-	if sm.globalConnections > 0 {
-		sm.globalConnections--
 	}
 }
 
@@ -275,47 +265,39 @@ func (sm *SecurityMiddleware) recordViolation(clientIP string, stats *IPStats, r
 // detectBurst detects burst attacks based on connection patterns
 func (sm *SecurityMiddleware) detectBurst(stats *IPStats, now time.Time) bool {
 	burstStart := now.Add(-sm.config.BurstWindow)
-	burstConnections := 0
+	first := sort.Search(len(stats.HourlyConnections), func(i int) bool {
+		return stats.HourlyConnections[i].After(burstStart)
+	})
+	return len(stats.HourlyConnections)-first >= sm.config.BurstThreshold
+}
 
-	for _, connTime := range stats.HourlyConnections {
-		if connTime.After(burstStart) {
-			burstConnections++
-		}
+// Timestamp histories are appended in time order under sm.mu. Drop only the
+// expired prefix: ordinary admission no longer copies the entire live window.
+func pruneHistory(history []time.Time, cutoff time.Time) []time.Time {
+	first := sort.Search(len(history), func(i int) bool { return history[i].After(cutoff) })
+	if first == 0 {
+		return history
 	}
-
-	return burstConnections >= sm.config.BurstThreshold
+	clear(history[:first])
+	if first == len(history) {
+		return history[:0]
+	}
+	return history[first:]
 }
 
 // cleanOldConnections removes connections older than the window
 func (sm *SecurityMiddleware) cleanOldConnections(stats *IPStats, now time.Time) {
-	cutoff := now.Add(-sm.config.ConnectionWindow)
-	validConnections := make([]time.Time, 0)
-
-	for _, connTime := range stats.HourlyConnections {
-		if connTime.After(cutoff) {
-			validConnections = append(validConnections, connTime)
-		}
-	}
-
-	stats.HourlyConnections = validConnections
+	stats.HourlyConnections = pruneHistory(stats.HourlyConnections, now.Add(-sm.config.ConnectionWindow))
 }
 
 // cleanOldViolations removes violations older than one hour
 func (sm *SecurityMiddleware) cleanOldViolations(stats *IPStats, now time.Time) {
-	cutoff := now.Add(-time.Hour)
-	validViolations := make([]time.Time, 0)
-
-	for _, violationTime := range stats.Violations {
-		if violationTime.After(cutoff) {
-			validViolations = append(validViolations, violationTime)
-		}
-	}
-
-	stats.Violations = validViolations
+	stats.Violations = pruneHistory(stats.Violations, now.Add(-time.Hour))
 }
 
 // cleanupRoutine periodically cleans up old data
 func (sm *SecurityMiddleware) cleanupRoutine() {
+	defer close(sm.cleanupDone)
 	for {
 		select {
 		case <-sm.cleanupTicker.C:
@@ -439,64 +421,127 @@ func (sm *SecurityMiddleware) ListTrustedNetworks() []string {
 
 // Stop shuts down the security middleware
 func (sm *SecurityMiddleware) Stop() {
-	if sm.cleanupTicker != nil {
-		sm.cleanupTicker.Stop()
+	sm.stopOnce.Do(func() {
+		if sm.cleanupTicker != nil {
+			sm.cleanupTicker.Stop()
+		}
+		if sm.stopCleanup != nil {
+			close(sm.stopCleanup)
+		}
+	})
+	if sm.cleanupDone != nil {
+		<-sm.cleanupDone
 	}
-	close(sm.stopCleanup)
 }
 
 // WrapConnection wraps a connection with security checks and timeouts
 func (sm *SecurityMiddleware) WrapConnection(conn net.Conn) net.Conn {
 	return &secureConnection{
-		Conn:    conn,
-		sm:      sm,
-		created: time.Now(),
+		Conn: conn,
+		sm:   sm,
 	}
+}
+
+type connectionDeadline struct {
+	explicit time.Time
+	applied  time.Time
 }
 
 // secureConnection wraps a net.Conn with security features
 type secureConnection struct {
 	net.Conn
 	sm                          *SecurityMiddleware
-	created                     time.Time
 	deadlineMu                  sync.Mutex
-	readDeadline, writeDeadline time.Time
+	readDeadline, writeDeadline connectionDeadline
 	closeOnce                   sync.Once
 	closeErr                    error
 }
 
-func (sc *secureConnection) deadline(explicit time.Time) time.Time {
-	idle := time.Now().Add(sc.sm.config.IdleTimeout)
-	if !explicit.IsZero() && explicit.Before(idle) {
-		return explicit
+// Coalescing reduces runtime poller updates during continuous transfers. Every
+// operation still checks its deadline. An idle deadline is never earlier than
+// IdleTimeout from that check, and never more than min(IdleTimeout/16, 1s) later.
+// Explicit deadlines are exact upper bounds, including already-expired ones.
+// Never retry an I/O timeout: in particular, a TLS write timeout is fatal.
+func (sc *secureConnection) deadlineTarget(state connectionDeadline, now time.Time, force bool) (time.Time, bool) {
+	idleTimeout := sc.sm.config.IdleTimeout
+	slack := idleTimeout / 16
+	if slack < 0 {
+		slack = 0
+	} else if slack > time.Second {
+		slack = time.Second
 	}
-	return idle
+	earliest := now.Add(idleTimeout)
+	latest := earliest.Add(slack)
+	if !state.explicit.IsZero() {
+		if state.explicit.Before(earliest) {
+			earliest = state.explicit
+		}
+		if state.explicit.Before(latest) {
+			latest = state.explicit
+		}
+	}
+	if !force && !state.applied.IsZero() && !state.applied.Before(earliest) && !state.applied.After(latest) {
+		return state.applied, false
+	}
+	return latest, true
+}
+
+func (sc *secureConnection) applyReadDeadline(now time.Time, force bool) error {
+	target, update := sc.deadlineTarget(sc.readDeadline, now, force)
+	if !update {
+		return nil
+	}
+	if err := sc.Conn.SetReadDeadline(target); err != nil {
+		sc.readDeadline.applied = time.Time{}
+		return err
+	}
+	sc.readDeadline.applied = target
+	return nil
+}
+
+func (sc *secureConnection) applyWriteDeadline(now time.Time, force bool) error {
+	target, update := sc.deadlineTarget(sc.writeDeadline, now, force)
+	if !update {
+		return nil
+	}
+	if err := sc.Conn.SetWriteDeadline(target); err != nil {
+		sc.writeDeadline.applied = time.Time{}
+		return err
+	}
+	sc.writeDeadline.applied = target
+	return nil
 }
 
 func (sc *secureConnection) SetReadDeadline(t time.Time) error {
 	sc.deadlineMu.Lock()
 	defer sc.deadlineMu.Unlock()
-	sc.readDeadline = t
-	return sc.Conn.SetReadDeadline(sc.deadline(t))
+	sc.readDeadline.explicit = t
+	return sc.applyReadDeadline(time.Now(), true)
 }
 
 func (sc *secureConnection) SetWriteDeadline(t time.Time) error {
 	sc.deadlineMu.Lock()
 	defer sc.deadlineMu.Unlock()
-	sc.writeDeadline = t
-	return sc.Conn.SetWriteDeadline(sc.deadline(t))
+	sc.writeDeadline.explicit = t
+	return sc.applyWriteDeadline(time.Now(), true)
 }
 
 func (sc *secureConnection) SetDeadline(t time.Time) error {
 	sc.deadlineMu.Lock()
 	defer sc.deadlineMu.Unlock()
-	sc.readDeadline, sc.writeDeadline = t, t
-	return sc.Conn.SetDeadline(sc.deadline(t))
+	sc.readDeadline.explicit, sc.writeDeadline.explicit = t, t
+	target, _ := sc.deadlineTarget(sc.readDeadline, time.Now(), true)
+	if err := sc.Conn.SetDeadline(target); err != nil {
+		sc.readDeadline.applied, sc.writeDeadline.applied = time.Time{}, time.Time{}
+		return err
+	}
+	sc.readDeadline.applied, sc.writeDeadline.applied = target, target
+	return nil
 }
 
 func (sc *secureConnection) Read(b []byte) (int, error) {
 	sc.deadlineMu.Lock()
-	err := sc.Conn.SetReadDeadline(sc.deadline(sc.readDeadline))
+	err := sc.applyReadDeadline(time.Now(), false)
 	sc.deadlineMu.Unlock()
 	if err != nil {
 		return 0, err
@@ -506,7 +551,7 @@ func (sc *secureConnection) Read(b []byte) (int, error) {
 
 func (sc *secureConnection) Write(b []byte) (int, error) {
 	sc.deadlineMu.Lock()
-	err := sc.Conn.SetWriteDeadline(sc.deadline(sc.writeDeadline))
+	err := sc.applyWriteDeadline(time.Now(), false)
 	sc.deadlineMu.Unlock()
 	if err != nil {
 		return 0, err
