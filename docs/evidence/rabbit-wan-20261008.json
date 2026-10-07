@@ -1,0 +1,379 @@
+{
+  "campaigns": [
+    {
+      "arrow_file_bytes": 47416,
+      "arrow_file_bytes_per_second": 1549.4717716421685,
+      "concurrency": 1,
+      "kelvo_to_source_native_tls_payload_bytes": 19364,
+      "latest_stream_end_minus_query_finish_seconds": 0.16874933242797852,
+      "matched_completed_streams": 5,
+      "name": "serial-analytics-3m",
+      "original_query_receipt_sha256": "18c4da891eae13cdda2b3a425c78d8b6d1461e5190844afb2f7fc40372d2e899",
+      "resources": {
+        "kelvo_peak_summed_rss_bytes": 134737920,
+        "mac_sampled": {
+          "postgres": {
+            "observed_cpu_seconds_within_sample_window": 10.240000000000002,
+            "peak_summed_rss_bytes": 149307392
+          },
+          "rabbit_client": {
+            "observed_cpu_seconds_within_sample_window": 0.040000000000000015,
+            "peak_summed_rss_bytes": 15368192
+          }
+        },
+        "oom_kills": 0,
+        "rabbit_peak_rss_bytes": 28299264,
+        "test_group_cpu_seconds": 0.510157,
+        "test_group_peak_memory_bytes": 100360192
+      },
+      "returned_rows": 470,
+      "returned_rows_per_second": 15.358776207858513,
+      "source_to_kelvo_native_tls_payload_bytes": 65790,
+      "source_to_kelvo_native_tls_payload_bytes_per_second": 2149.9018866276842,
+      "successful_queries": 5,
+      "timed_phase_seconds": 30.60139646800235
+    },
+    {
+      "arrow_file_bytes": 94832,
+      "arrow_file_bytes_per_second": 5459.253518294716,
+      "concurrency": 10,
+      "kelvo_to_source_native_tls_payload_bytes": 38728,
+      "latest_stream_end_minus_query_finish_seconds": 0.18235325813293457,
+      "matched_completed_streams": 10,
+      "name": "parallel-analytics-3m",
+      "original_query_receipt_sha256": "6bee53ef689d7596666b3ce960ca8d1a6e3f15fd6811e412efe499a4032dc3b3",
+      "resources": {
+        "kelvo_peak_summed_rss_bytes": 1323659264,
+        "mac_sampled": {
+          "postgres": {
+            "observed_cpu_seconds_within_sample_window": 26.570000000000018,
+            "peak_summed_rss_bytes": 691257344
+          },
+          "rabbit_client": {
+            "observed_cpu_seconds_within_sample_window": 0.06000000000000001,
+            "peak_summed_rss_bytes": 19316736
+          }
+        },
+        "oom_kills": 0,
+        "rabbit_peak_rss_bytes": 28954624,
+        "test_group_cpu_seconds": 1.011458,
+        "test_group_peak_memory_bytes": 526336000
+      },
+      "returned_rows": 940,
+      "returned_rows_per_second": 54.11357249870332,
+      "source_to_kelvo_native_tls_payload_bytes": 131580,
+      "source_to_kelvo_native_tls_payload_bytes_per_second": 7574.748797212109,
+      "successful_queries": 10,
+      "timed_phase_seconds": 17.370873084058985
+    },
+    {
+      "arrow_file_bytes": 161335288,
+      "arrow_file_bytes_per_second": 3744693.721481428,
+      "concurrency": 1,
+      "kelvo_to_source_native_tls_payload_bytes": 3026,
+      "latest_stream_end_minus_query_finish_seconds": -0.07057714462280273,
+      "matched_completed_streams": 1,
+      "name": "raw-one-3m",
+      "original_query_receipt_sha256": "14f268fbbcd960fdac651220b0021b2c1eb54e34fe73d4eda92b25ac92730a2d",
+      "resources": {
+        "kelvo_peak_summed_rss_bytes": 139255808,
+        "mac_sampled": {
+          "postgres": {
+            "observed_cpu_seconds_within_sample_window": 4.120000000000033,
+            "peak_summed_rss_bytes": 63488000
+          },
+          "rabbit_client": {
+            "observed_cpu_seconds_within_sample_window": 1.97,
+            "peak_summed_rss_bytes": 14483456
+          }
+        },
+        "oom_kills": 0,
+        "rabbit_peak_rss_bytes": 28954624,
+        "test_group_cpu_seconds": 10.36869,
+        "test_group_peak_memory_bytes": 270729216
+      },
+      "returned_rows": 3000000,
+      "returned_rows_per_second": 69631.8908510845,
+      "source_to_kelvo_native_tls_payload_bytes": 313441793,
+      "source_to_kelvo_native_tls_payload_bytes_per_second": 7275181.572781407,
+      "successful_queries": 1,
+      "timed_phase_seconds": 43.0837072400609
+    },
+    {
+      "arrow_file_bytes": 1613352880,
+      "arrow_file_bytes_per_second": 5558731.370704691,
+      "concurrency": 10,
+      "kelvo_to_source_native_tls_payload_bytes": 30260,
+      "latest_stream_end_minus_query_finish_seconds": 0.12486600875854492,
+      "matched_completed_streams": 10,
+      "name": "raw-ten-3m",
+      "original_query_receipt_sha256": "582994f9d5d9c9048195e0f6ba59a487f7771ca90284f939242a2fa3969c1138",
+      "resources": {
+        "independent_sampled_memory_component_maxima_bytes": {
+          "memory.stat.anon": 536363008,
+          "memory.stat.file": 1613783040,
+          "memory.stat.file_dirty": 177401856,
+          "memory.stat.file_writeback": 23752704,
+          "memory.stat.kernel": 50487296,
+          "memory.stat.pagetables": 8241152,
+          "memory.stat.slab": 48375968,
+          "memory.stat.sock": 569344
+        },
+        "kelvo_peak_summed_rss_bytes": 1374121984,
+        "mac_sampled": {
+          "postgres": {
+            "observed_cpu_seconds_within_sample_window": 39.87000000000166,
+            "peak_summed_rss_bytes": 368115712
+          },
+          "rabbit_client": {
+            "observed_cpu_seconds_within_sample_window": 17.78,
+            "peak_summed_rss_bytes": 18841600
+          }
+        },
+        "oom_kills": 0,
+        "rabbit_peak_rss_bytes": 29741056,
+        "test_group_cpu_seconds": 114.32041,
+        "test_group_peak_memory_bytes": 1780002816
+      },
+      "returned_rows": 30000000,
+      "returned_rows_per_second": 103363.58721542724,
+      "source_to_kelvo_native_tls_payload_bytes": 3134417923,
+      "source_to_kelvo_native_tls_payload_bytes_per_second": 10799489.345120294,
+      "successful_queries": 10,
+      "timed_phase_seconds": 290.2376050230814
+    }
+  ],
+  "cancellation": {
+    "cli_test": {
+      "deadline_seconds": 10,
+      "final_source_markers_absent": true,
+      "source_stop_upper_bound_seconds_from_prelaunch_gate": 11.690880083013326,
+      "target_cli_elapsed_seconds": 11.820123814977705,
+      "unrelated_active_when_target_stopped": true,
+      "unrelated_arrow_eos_verified": true,
+      "unrelated_arrow_rows": 1,
+      "unrelated_arrow_value": 42,
+      "unrelated_cli_elapsed_seconds": 23.088769795023836
+    },
+    "delayed_driver_cancellation_seconds": 3.535,
+    "fixed_binary_sha256": "85fdad5654b04cc0373c60764134ed0929e74ccad6fc1bcf800c40072e50ae41",
+    "fixed_build_live_validation": "Linux focused and race tests, delayed real-source TLS cancellation, and live CLI isolation passed",
+    "fixed_source_commit": "d68ff4cc472682974438fe30aa591b892c4fe91d",
+    "independent_cancel_request_ms": 1540,
+    "independent_cancel_sqlstate": "57014",
+    "injected_fresh_connection_delay_seconds": 1.5,
+    "original_build_observation": "A 10-second CLI timeout returned at 10.63 seconds while the source query remained active at least 4.58 seconds afterward",
+    "original_cli_isolation_receipt_sha256": "3becffc69ba3d9b5caea38ecb1983bc5879a9d99049b69017c84f7df7cfaca8a",
+    "status": "passed",
+    "throughput_binary_contains_later_cancellation_fix": false
+  },
+  "dataset": {
+    "analytical_workflows": [
+      "daily_zone_service",
+      "driver_leaderboard",
+      "weekly_cohort",
+      "adjustment_reconciliation",
+      "route_mix"
+    ],
+    "kind": "Synthetic ride-hailing; not public NYC Taxi data",
+    "raw_parallel_distinct_source_datasets": 1,
+    "raw_parallel_repeated_exports": 10,
+    "source_trip_rows": 3000000,
+    "table_rows": {
+      "adjustments": 300000,
+      "drivers": 2048,
+      "riders": 10000,
+      "services": 4,
+      "trips": 3000000,
+      "zones": 64
+    }
+  },
+  "date_utc": "2026-10-07",
+  "execution": {
+    "compression": "none",
+    "direct_wan_baseline_recorded": false,
+    "engine_budget_is_process_rss_limit": false,
+    "engine_memory_budget_mb_per_query": 256,
+    "federation_or_acceleration_tested": false,
+    "first_row_metric_recorded": false,
+    "measured_scope": "CLI startup, native source execution, Rabbit/WAN transfer and Arrow file output/fsync; validation excluded",
+    "mode": "native PostgreSQL joins and CTEs; Kelvo converts and streams Arrow",
+    "per_query_processes": "Fresh Kelvo CLI and worker",
+    "requested_threads_per_query": 1,
+    "row_batch_target_bytes": 0,
+    "runs_per_scenario": 1,
+    "source_analytics_temp_spills": [
+      "daily_zone_service",
+      "weekly_cohort"
+    ],
+    "source_cache_state": "Warm: recently seeded, counted and EXPLAIN ANALYZE inspected; caches not flushed",
+    "source_max_parallel_workers_per_gather": 1,
+    "source_work_mem": "8MB",
+    "validation_begins_after_telemetry": true
+  },
+  "limits": [
+    "No direct-WAN comparison or measured speedup claim",
+    "No repeated-trial confidence interval",
+    "No 1 GB deployment capacity claim",
+    "No production-scale capacity claim",
+    "Native source SQL only; no federation or acceleration result"
+  ],
+  "post_fix_smoke": {
+    "binary_sha256": "85fdad5654b04cc0373c60764134ed0929e74ccad6fc1bcf800c40072e50ae41",
+    "campaigns": [
+      {
+        "campaign": "fixed-raw-one-3m",
+        "cgroup_empty_or_removed": true,
+        "every_returned_value_and_eos_verified": true,
+        "ok": true,
+        "original_query_receipt_sha256": "9cf53e645b8a7f488b71e5a5ace43fe0d309c31c9ca379b6ca8f575dd7ca3870",
+        "output_files_removed": true,
+        "query_count": 1,
+        "result_file_bytes": 161335288,
+        "returned_rows": 3000000,
+        "returned_rows_per_second": 49861.845713979776,
+        "timed_phase_seconds": 60.166244491003454,
+        "unit_inactive": true,
+        "workflows": [
+          {
+            "name": "raw_trips",
+            "rows": 3000000,
+            "seconds": 60.166244491003454
+          }
+        ]
+      },
+      {
+        "campaign": "fixed-serial-analytics-3m",
+        "cgroup_empty_or_removed": true,
+        "every_returned_value_and_eos_verified": true,
+        "ok": true,
+        "original_query_receipt_sha256": "0686ee6a403d45920ecc2fea2fd7adad43809fb55e594919d1fd7a22c435d5e0",
+        "output_files_removed": true,
+        "query_count": 5,
+        "result_file_bytes": 47416,
+        "returned_rows": 470,
+        "returned_rows_per_second": 13.348493173861682,
+        "timed_phase_seconds": 35.209966688998975,
+        "unit_inactive": true,
+        "workflows": [
+          {
+            "name": "daily_zone_service",
+            "rows": 150,
+            "seconds": 11.218514871085063
+          },
+          {
+            "name": "driver_leaderboard",
+            "rows": 24,
+            "seconds": 3.806344222975895
+          },
+          {
+            "name": "weekly_cohort",
+            "rows": 160,
+            "seconds": 12.970992698916234
+          },
+          {
+            "name": "adjustment_reconciliation",
+            "rows": 96,
+            "seconds": 3.255671184975654
+          },
+          {
+            "name": "route_mix",
+            "rows": 40,
+            "seconds": 3.956647451967001
+          }
+        ]
+      }
+    ],
+    "captured_unix": 1791406970.3895411,
+    "measurement_scope": "fixed-binary smoke, fresh unpaired WAN runs; no isolated overhead or causal performance comparison",
+    "ok": true,
+    "original_completion_sha256": "fa48ab844ca4681771ed32ffd4a28f8dcfc5a4a6ded1a41bada178285682e3a9",
+    "verified_during_run_limits": {
+      "cpu_period_us": 100000,
+      "cpu_quota_us": 300000,
+      "memory_bytes": 5368709120,
+      "swap_bytes": 0,
+      "tasks_max": 256
+    }
+  },
+  "provenance": {
+    "expected_data_manifest_sha256": "93c85069b4bfa8dac1d9f53a090bb781518aaaedf91f27fd0ac83b91b2104988",
+    "kelvo_binary_sha256": "46017aa50153059b39cffc921e842bf771fa53d1e3f1f19a0fee225bcb62cecb",
+    "kelvo_runtime_equivalence_note": "Documentation-only delta",
+    "kelvo_runtime_equivalent_cargo_commit": "faab123730f5ddadacd5872ef17ee9b881600379",
+    "kelvo_source_commit": "124f0a957f1a6cd7f876987222ef3acbd369f142",
+    "original_performance_summary_sha256": "f44e0520708bcef33b3900837aceebaa5700b9d6e05673cabee4cc8097d179d1",
+    "original_stream_counter_snapshot_sha256": "84ed391c4193f91ea7398eef7692bb7e4c30067f1ff065d1c27b41f7a2d929a9",
+    "original_workload_sql_sha256": "ec17b1ba4f5abe69d763204390d96eef557d9a53c7e066f39b2a668af61730be",
+    "published_workload_sql": "scripts/wan_postgres_workload.sql",
+    "published_workload_sql_sha256": "3ca047ba41b9081516775933404cb49af8c1a50c97e5c1f448b982c07bd20e55",
+    "rabbit_macos_client_binary_sha256": "e0a9496ae5322d7ede6bf73b736a080fb03a52112c18bbc2af809910991a250f",
+    "rabbit_server_binary_sha256": "a6259275271c9b90e243683e0622b5569af402866751617899251133da0469a2",
+    "rabbit_source_commit": "fcd52217ace643c96907385a14dbb8bc1d8cb10b",
+    "workload_change": "Only the stale PREPARATION ONLY first-line comment was corrected; remaining bytes are identical"
+  },
+  "resource_accounting": {
+    "hard_cpu_memory_limits_verified": false,
+    "hard_limit_evidence": "Captured limit map was empty",
+    "independent_memory_component_maxima_are_additive": false,
+    "mac_window_clock_alignment": {
+      "captured_after_campaigns": true,
+      "clock_drift_measured": false,
+      "consumer_minus_source_midpoint_seconds": 0.08049821853637695,
+      "uncertainty_seconds": 0.10855340957641602
+    },
+    "process_cpu_scope": "Observed within sample windows; may miss short-lived children and terminal CPU",
+    "rss_sample_interval_seconds": 1,
+    "rss_scope": "Sampled process-tree RSS; may miss peaks and counts shared mappings repeatedly",
+    "test_cgroup_cpu_scope": "Usage counter delta over telemetry window; includes harness",
+    "test_cgroup_scope": "Query harness and outputs, including page cache; excludes separate Rabbit server and source PostgreSQL"
+  },
+  "schema": "rabbit-wan-postgres-benchmark-v1",
+  "topology": {
+    "consumer": "Rabbit server and Kelvo on Linux x86-64",
+    "source": "PostgreSQL 16 and Rabbit client on macOS",
+    "transport": "Public WAN; verified Rabbit TLS over TCP, with native PostgreSQL TLS through the tunnel"
+  },
+  "traffic_accounting": {
+    "all_matched_streams_closed_without_error": true,
+    "arrow_wire_bytes_meaning": "Kelvo wire_bytes equals Arrow output file size here, not WAN bytes",
+    "counter_scope": "Successfully copied native PostgreSQL negotiation and TLS authentication/query/result bytes",
+    "excluded_bytes": [
+      "Outer Rabbit TLS records and handshake",
+      "DATA frame and control channel",
+      "TCP/IP framing",
+      "Retransmissions"
+    ],
+    "matched_completed_streams": 26,
+    "metadata_logging": "Best effort; counts reconciled to expected queries",
+    "method": "Match stream starts to four disjoint campaign windows on the same host; include complete stream counters",
+    "other_logged_attempts_excluded": 13
+  },
+  "validation": {
+    "complete_arrow_eos_checked": true,
+    "every_returned_value_checked": true,
+    "failed_queries": 0,
+    "passed_queries": 26,
+    "raw_export_arrow_buffer_bytes": 159161800,
+    "raw_export_arrow_file_bytes": 161335288,
+    "raw_export_batches": 2930,
+    "raw_export_canonical_sha256": "aa5f76da085cc3e5c6e66c6170a8642e904780efa8e055d9714c5f113ff8b25e",
+    "raw_export_column_sha256": {
+      "adjustment_cents": "bd2599db99a0b29bc75d722c4fbe22e0b7790d9851a337c5f4804e8afc326c60",
+      "distance_m": "4b2bb1a222f3f17c9568b785613e794a8e76e19df91003b15cfefe8f48889066",
+      "driver_id": "b87d763e9a40f5d42cc11540349e634a484e5b3c46e5408ee4d2881fca60d00e",
+      "dropoff_zone_id": "f6fd7f54f065f61e5af77a4b559cc39ad3a6eb29c8f9d7e79704b9cb0a4acb33",
+      "duration_seconds": "42ea2c92dd9a2d50cc07c80eb5ddbfb8579cc17bcbcbeeb8cdf6c9b45d66072a",
+      "fare_cents": "6adf1b5fba1b04839a9aed8b7d89cffd45aec39877a4bb681c80c88c8abd137c",
+      "memo": "26257edbacf7fb1c1ac18e20082c7bfbbca979770f0d7843e24555515f2c37ab",
+      "pickup_zone_id": "a3d1bc48b52d6990a0879b7ff8b256fc23adc272d9ecc0ab97aa3a8ba0460300",
+      "requested_at": "fb1bff872271fe041aa064c24f3250db25046dc2c7b11c6920391e6e6c35e1fc",
+      "rider_id": "4629c95935cc3ecd90ed0db306ea85610d1f0b41b04561a7782e5bfd60823b25",
+      "service_id": "4387b611f87b78ff62ce71e15e54b4cb78b5eb8db8071afb1d527ed7a2d0bf1d",
+      "status": "a483056da1bbe5f08f9ce528654c92dc1b789054f9485ee4f2194f2f23b57b21",
+      "trip_id": "9a7d08289c22a604bdc684c31523792ad61d76e694d3aec680287dcb8be363ae"
+    },
+    "raw_export_rows": 3000000,
+    "raw_files_removed_after_validation": true
+  }
+}
