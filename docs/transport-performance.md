@@ -59,3 +59,6 @@ Follow [transport validation](transport-validation.md) for commands. See
 [deployment guidance](private-database-transport.md) for pooling, TLS and limits.
 WAN loss/latency, production RSS and sustained tenant concurrency need separate
 measurements. Source, client, harness and result hashes are in the evidence file.
+
+For the Mac-to-Azure test with 3M source rows and ten concurrent exports, see
+[PostgreSQL over a real WAN](wan-postgres-benchmark.md).
