@@ -16,8 +16,54 @@ type pendingConnection struct {
 }
 
 type tunnelStream struct {
+	owner    net.Conn
 	external net.Conn
 	data     net.Conn
+}
+
+// replaceControlOwnerLocked fences the old owner before any new stream can be
+// admitted. The caller closes returned sockets after releasing the server lock.
+func (s *Server) replaceControlOwnerLocked(t *Tunnel, next net.Conn) []net.Conn {
+	previous := t.Client
+	if previous == next {
+		return nil
+	}
+	t.Client = next
+	t.busyOwner = nil
+	if previous == nil {
+		return nil
+	}
+	connections := []net.Conn{previous}
+	for id, pending := range s.pendingConns {
+		if pending.tunnel != t || pending.owner != previous {
+			continue
+		}
+		delete(s.pendingConns, id)
+		if pending.rejected != nil {
+			close(pending.rejected)
+		}
+		select {
+		case data := <-pending.ready:
+			if data != nil {
+				connections = append(connections, data)
+			}
+		default:
+		}
+	}
+	for stream := range t.streams {
+		if stream.owner == previous {
+			connections = append(connections, stream.external, stream.data)
+		}
+	}
+	return connections
+}
+
+func closeReplacedOwner(connections []net.Conn) {
+	for _, conn := range connections {
+		if conn != nil {
+			closeShutdownConnection(conn)
+		}
+	}
 }
 
 func (t *Tunnel) initLifecycle(s *Server) {
@@ -74,7 +120,7 @@ func (s *Server) beginTunnelStream(t *Tunnel, owner, external, data net.Conn) (*
 	if !s.controlOwnerActiveLocked(t, owner) {
 		return nil, false
 	}
-	stream := &tunnelStream{external: external, data: data}
+	stream := &tunnelStream{owner: owner, external: external, data: data}
 	if t.streams == nil {
 		t.streams = make(map[*tunnelStream]struct{})
 	}
