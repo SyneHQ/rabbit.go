@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SyneHQ/kelvo-go
-          ref: bdb1d209c92f952a6621e4ec224349645aa0684e
+          ref: 89602dabfe89feb1285783c4183ae4b95686f2b1
           path: native-kelvo
           persist-credentials: false
 
