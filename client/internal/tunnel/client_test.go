@@ -118,6 +118,7 @@ func TestClientPreservesControlReadAheadAndHalfClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitClientStop(t, client)
+	readTestLine(t, reader, "CAPS:busy-v1")
 	readTestLine(t, reader, "DISCONNECT")
 }
 
@@ -176,6 +177,7 @@ func TestClientBoundsDataConnectionsWithoutDroppingControl(t *testing.T) {
 		t.Fatalf("overload interrupted admitted stream: %q, %v", got, err)
 	}
 	awaitClientStop(t, client)
+	readTestLine(t, reader, "CAPS:busy-v1")
 	readTestLine(t, reader, "DISCONNECT")
 }
 
@@ -349,4 +351,34 @@ func TestAbsentControlTrafficEndsOnlyItsSession(t *testing.T) {
 		t.Fatal("failed session cancelled its parent's context")
 	}
 	<-readDone
+}
+
+func TestNegotiatedBusyRejectsExcessWithoutInterruptingStream(t *testing.T) {
+	server, local := testTCPListener(t), testTCPListener(t)
+	client := testClient(t, server, local, 1)
+	control := acceptTestConn(t, server)
+	reader := bufio.NewReader(control)
+	readTestLine(t, reader, "test-token")
+	readTestLine(t, reader, client.Config.LocalPort)
+	_, _ = io.WriteString(control, "SUCCESS:tunnel:12345\n")
+	readTestLine(t, reader, "CAPS:busy-v1")
+	id := strings.Repeat("a", 64)
+	_, _ = io.WriteString(control, "CAPS:busy-v1\nCONNECT\nCONN_ID:"+id+"\n")
+	data := acceptTestConn(t, server)
+	readTestLine(t, bufio.NewReader(data), "DATA:"+id)
+	database := acceptTestConn(t, local)
+	second := strings.Repeat("b", 64)
+	started := time.Now()
+	_, _ = io.WriteString(control, "CONNECT\nCONN_ID:"+second+"\n")
+	readTestLine(t, reader, "BUSY:"+second)
+	if time.Since(started) > time.Second {
+		t.Fatal("overload rejection exceeded one second")
+	}
+	go io.WriteString(data, "alive")
+	got := make([]byte, 5)
+	if _, err := io.ReadFull(database, got); err != nil || string(got) != "alive" {
+		t.Fatal("overload interrupted the admitted stream")
+	}
+	awaitClientStop(t, client)
+	readTestLine(t, reader, "DISCONNECT")
 }

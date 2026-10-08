@@ -9,9 +9,10 @@ import (
 )
 
 type pendingConnection struct {
-	tunnel *Tunnel
-	owner  net.Conn
-	ready  chan net.Conn
+	tunnel   *Tunnel
+	owner    net.Conn
+	ready    chan net.Conn
+	rejected chan struct{}
 }
 
 type tunnelStream struct {
@@ -113,5 +114,19 @@ func (t *Tunnel) finishStreamLog(logID uuid.UUID, received, sent int64, status s
 	defer cancel()
 	if err := t.server.dbService.EndStream(ctx, logID, received, sent, status, message); err != nil {
 		log.Printf("Failed to complete stream log: %v", err)
+	}
+}
+
+// rejectPending consumes only an unpaired stream owned by the negotiated control socket.
+func (s *Server) rejectPending(t *Tunnel, owner net.Conn, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.pendingConns[id]
+	if t.busyOwner != owner || !s.controlOwnerActiveLocked(t, owner) || pending == nil || pending.tunnel != t || pending.owner != owner {
+		return
+	}
+	delete(s.pendingConns, id)
+	if pending.rejected != nil {
+		close(pending.rejected)
 	}
 }

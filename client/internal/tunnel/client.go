@@ -179,6 +179,11 @@ func (tc *TunnelClient) runSession(parent context.Context) (established bool, er
 	control.ready = true
 	control.mu.Unlock()
 	log.Printf("Tunnel established: local port %s, remote port %s", tc.Config.LocalPort, parts[2])
+	// Old servers ignore unknown control messages. Send BUSY only after acknowledgement.
+	if err := control.write("CAPS:busy-v1\n", tc.Config.ConnectionTimeout); err != nil {
+		return true, err
+	}
+	busyNegotiated := false
 
 	var workers sync.WaitGroup
 	defer func() {
@@ -202,6 +207,9 @@ func (tc *TunnelClient) runSession(parent context.Context) (established bool, er
 			return true, fmt.Errorf("read tunnel control: %w", err)
 		}
 		switch line {
+		case "CAPS:busy-v1":
+			busyNegotiated = true
+			continue
 		case "PONG":
 			continue
 		case "CONNECT":
@@ -223,7 +231,12 @@ func (tc *TunnelClient) runSession(parent context.Context) (established bool, er
 					tc.handleDataConnection(ctx, id)
 				}()
 			default:
-				// The server's existing pairing timeout rejects this request.
+				if busyNegotiated {
+					if err := control.write("BUSY:"+id+"\n", min(tc.Config.ConnectionTimeout, time.Second)); err != nil {
+						return true, err
+					}
+				}
+				// Old servers reject this request with their pairing timeout.
 				// Keep processing PONGs and preserve established data streams.
 				if !overloaded {
 					log.Printf("Tunnel data connection limit reached")
