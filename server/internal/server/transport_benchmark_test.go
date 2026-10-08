@@ -287,16 +287,6 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	}
 	tb.Cleanup(func() { fixture.Close() })
 	fixture.SetMaxOpenConns(1)
-	// The external metadata database owns Team. The repository migration's
-	// standalone Team definition lacks fields used by its current auth queries.
-	_, err = fixture.ExecContext(ctx, `CREATE TABLE public."Team" (
-		id text PRIMARY KEY, name text NOT NULL UNIQUE, description text NOT NULL DEFAULT '',
-		deleted boolean NOT NULL DEFAULT false, is_active boolean NOT NULL DEFAULT true,
-		"createdAt" timestamptz NOT NULL DEFAULT NOW(), "updatedAt" timestamptz NOT NULL DEFAULT NOW(),
-		created_at timestamptz NOT NULL DEFAULT NOW(), updated_at timestamptz NOT NULL DEFAULT NOW())`)
-	if err != nil {
-		tb.Fatal(err)
-	}
 	_, thisFile, _, _ := runtime.Caller(0)
 	migration, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "..", "database", "migrations.sql"))
 	if err != nil {
@@ -304,6 +294,9 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	}
 	if _, err := fixture.ExecContext(ctx, string(migration)); err != nil {
 		tb.Fatalf("transport fixture migration failed: %v", err)
+	}
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO rabbit_identity_binding(singleton,mode) VALUES(true,'standalone')`); err != nil {
+		tb.Fatal(err)
 	}
 	redisOptions, err := redis.ParseURL(redisURL)
 	if err != nil {
@@ -347,7 +340,7 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	}
 	for key, value := range map[string]string{
 		"DATABASE_URL": fixtureDSN.String(), "REDIS_URL": redisURL,
-		"RABBIT_TLS_CERT_PEM": string(certPEM), "RABBIT_TLS_KEY_PEM": string(keyPEM),
+		"RABBIT_IDENTITY_MODE": "standalone", "RABBIT_TLS_CERT_PEM": string(certPEM), "RABBIT_TLS_KEY_PEM": string(keyPEM),
 		"RABBIT_TLS_CERT_FILE": "", "RABBIT_TLS_KEY_FILE": "",
 		"RABBIT_NOTEBOOK_AUTHORITY_URL": "", "TRUSTED_NETWORKS": "", "ENVIRONMENT": "production",
 	} {
@@ -366,7 +359,7 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	port := reservation.Addr().(*net.TCPAddr).Port
 	reservation.Close()
 	token, tokenID, assignmentID, team := uuid.NewString(), uuid.New(), uuid.New(), uuid.NewString()
-	if _, err := fixture.ExecContext(ctx, `INSERT INTO "Team"(id,name) VALUES($1,$1)`, team); err != nil {
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO rabbit_teams(id,name) VALUES($1,$1)`, team); err != nil {
 		tb.Fatal(err)
 	}
 	if _, err := fixture.ExecContext(ctx, `INSERT INTO team_tokens(id,team_id,token,name,description) VALUES($1,$2,$3,'transport fixture','')`, tokenID, team, token); err != nil {

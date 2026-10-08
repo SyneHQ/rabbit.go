@@ -26,54 +26,24 @@ func NewRepository(db *Database) *Repository {
 
 // GetTeamByID retrieves a team by ID
 func (r *Repository) GetTeamByID(ctx context.Context, id string) (*Team, error) {
-	team := &Team{}
-	query := `SELECT id, name, COALESCE(description, '') FROM public."Team" WHERE id = $1 AND deleted = false`
-
-	rows, err := r.db.DB.QueryContext(ctx, query, id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get team: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		err := rows.Scan(
-			&team.ID, &team.Name, &team.Description,
-		)
-		if err != nil {
-			fmt.Println("error", err)
-			return nil, fmt.Errorf("failed to scan team: %w", err)
-		}
-		team.IsActive = true
-		fmt.Println("team", team)
-	}
-
-	fmt.Println("team", team)
-
-	if team.ID == "" {
-		return nil, fmt.Errorf("team not found")
-	}
-
-	return team, nil
+	return r.lookupTeam(ctx, "id", id)
 }
 
-// GetTeamByName retrieves a team by name
+// GetTeamByName retrieves an active team by name.
 func (r *Repository) GetTeamByName(ctx context.Context, name string) (*Team, error) {
+	return r.lookupTeam(ctx, "name", name)
+}
+
+func (r *Repository) lookupTeam(ctx context.Context, field, value string) (*Team, error) {
 	team := &Team{}
-	query := `
-		SELECT id, name, description, "createdAt", "updatedAt"
-		FROM public."Team" WHERE name = $1 AND deleted = false`
-
-	err := r.db.DB.QueryRowContext(ctx, query, name).Scan(
-		&team.ID, &team.Name, &team.Description, &team.CreatedAt, &team.UpdatedAt, &team.IsActive,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("team not found")
-		}
-		return nil, fmt.Errorf("failed to get team: %w", err)
+	query := "SELECT id,name,description,created_at,updated_at,is_active FROM " + r.db.identityTeams() + " t WHERE " + field + "=$1 AND is_active"
+	err := r.db.DB.QueryRowContext(ctx, query, value).Scan(&team.ID, &team.Name, &team.Description, &team.CreatedAt, &team.UpdatedAt, &team.IsActive)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("team not found")
 	}
-
+	if err != nil {
+		return nil, fmt.Errorf("get team: %w", err)
+	}
 	return team, nil
 }
 
@@ -88,7 +58,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 
 	// Verify team exists
 	var teamExists bool
-	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM public.\"Team\" WHERE id = $1 AND deleted = false)", teamID).Scan(&teamExists)
+	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+r.db.identityTeams()+" t WHERE id = $1 AND is_active)", teamID).Scan(&teamExists)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check team existence: %w", err)
 	}
@@ -226,9 +196,9 @@ func (r *Repository) GetTeamTokenByToken(ctx context.Context, token string) (*Te
 	query := `
 		SELECT t.id, t.team_id, t.token, t.name, t.description, t.created_at,
 		       t.expires_at, t.last_used_at, t.is_active,
-		       "Team".id, "Team".name, "Team".description, NOT "Team".deleted as is_active
+		       identity.id, identity.name, identity.description, identity.is_active
 		FROM team_tokens t
-		JOIN "Team" ON t.team_id = "Team".id AND "Team".deleted = false
+		JOIN ` + r.db.identityTeams() + ` identity ON t.team_id = identity.id AND identity.is_active
 		WHERE t.token = $1 AND t.is_active = true
 		  AND (t.expires_at IS NULL OR t.expires_at > NOW())`
 
@@ -265,13 +235,13 @@ func (r *Repository) ListTeamsWithTokens(ctx context.Context) ([]TokenRow, error
 	query := `
 		SELECT 
 			t.id, t.name, COALESCE(t.description, '') as description, 
-			COALESCE(t."createdAt", NOW()) as created_at,
+			t.created_at as created_at,
 			tt.id, tt.name, NULL::text, tt.description, tt.created_at, tt.expires_at, tt.last_used_at,
 			pa.port, pa.protocol
-		FROM public."Team" t
+		FROM ` + r.db.identityTeams() + ` t
 		LEFT JOIN team_tokens tt ON t.id = tt.team_id AND tt.is_active = true
 		LEFT JOIN port_assignments pa ON tt.id = pa.token_id AND pa.is_reserved = true
-		WHERE t.deleted = false
+		WHERE t.is_active
 		ORDER BY t.name, tt.created_at
 	`
 
@@ -362,10 +332,10 @@ func (r *Repository) GetPortAssignmentByToken(ctx context.Context, tokenID uuid.
 	assignment := &PortAssignment{}
 	query := `
 		SELECT pa.id, pa.team_id, pa.token_id, pa.port, pa.protocol, pa.is_reserved, pa.created_at, pa.updated_at,
-		       t.id, t.name, t.description, NOT t.deleted as is_active,
+		       t.id, t.name, t.description, t.is_active,
 		       tt.id, tt.team_id, tt.token, tt.name, tt.description, tt.created_at, tt.expires_at, tt.last_used_at, tt.is_active
 		FROM port_assignments pa
-		JOIN "Team" t ON pa.team_id = t.id AND t.deleted = false
+		JOIN ` + r.db.identityTeams() + ` t ON pa.team_id = t.id AND t.is_active
 		JOIN team_tokens tt ON pa.token_id = tt.id
 		WHERE pa.token_id = $1 AND pa.is_reserved = true`
 

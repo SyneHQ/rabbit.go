@@ -18,12 +18,12 @@ func TestRealMetadataMembership(t *testing.T) {
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	for _, q := range []string{`CREATE TEMP TABLE "Team"(id text,deleted boolean)`, `CREATE TEMP TABLE postgoose_user_teams("userId" text,"teamId" text,role text,deleted boolean)`, `INSERT INTO "Team" VALUES ('a',false),('b',false),('deleted',true)`, `INSERT INTO postgoose_user_teams VALUES ('owner','a','OWNER',false),('member','a','MEMBER',false),('owner','deleted','OWNER',false),('revoked','a','OWNER',true)`} {
+	for _, q := range []string{`CREATE TEMP TABLE rabbit_identity_binding(singleton boolean,mode text)`, `INSERT INTO rabbit_identity_binding VALUES(true,'postgoose')`, `CREATE TEMP TABLE "Team"(id text,deleted boolean)`, `CREATE TEMP TABLE postgoose_user_teams("userId" text,"teamId" text,role text,deleted boolean)`, `INSERT INTO "Team" VALUES ('a',false),('b',false),('deleted',true)`, `INSERT INTO postgoose_user_teams VALUES ('owner','a','OWNER',false),('member','a','MEMBER',false),('owner','deleted','OWNER',false),('revoked','a','OWNER',true)`} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	s := NewService(&Database{DB: db})
+	s := NewService(&Database{DB: db, IdentityMode: IdentityPostgoose})
 	for _, tc := range []struct {
 		user, team  string
 		admin, want bool

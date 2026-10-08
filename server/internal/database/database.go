@@ -17,20 +17,26 @@ import (
 
 // Database represents the database service with PostgreSQL and Redis
 type Database struct {
-	DB    *sql.DB
-	Redis *redis.Client
-	ctx   context.Context
+	DB           *sql.DB
+	Redis        *redis.Client
+	ctx          context.Context
+	IdentityMode string
 }
 
 // Config holds database configuration
 type Config struct {
-	PostgresURL string
-	RedisURL    string
-	RedisDB     int
+	PostgresURL  string
+	RedisURL     string
+	RedisDB      int
+	IdentityMode string
 }
 
 // NewDatabase creates a new database instance
 func NewDatabase(config Config) (*Database, error) {
+	mode, err := normalizeIdentityMode(config.IdentityMode)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -82,9 +88,10 @@ func NewDatabase(config Config) (*Database, error) {
 
 	configured = true
 	return &Database{
-		DB:    db,
-		Redis: rdb,
-		ctx:   context.Background(),
+		DB:           db,
+		Redis:        rdb,
+		ctx:          context.Background(),
+		IdentityMode: mode,
 	}, nil
 }
 
@@ -152,9 +159,10 @@ func GetConfigFromEnv() Config {
 	}
 
 	return Config{
-		PostgresURL: getEnvOrDefault("DATABASE_URL", "postgres://localhost/syne_tunneler?sslmode=disable"),
-		RedisURL:    getEnvOrDefault("REDIS_URL", "redis://localhost:6379"),
-		RedisDB:     0,
+		PostgresURL:  getEnvOrDefault("DATABASE_URL", "postgres://localhost/syne_tunneler?sslmode=disable"),
+		RedisURL:     getEnvOrDefault("REDIS_URL", "redis://localhost:6379"),
+		RedisDB:      0,
+		IdentityMode: os.Getenv("RABBIT_IDENTITY_MODE"),
 	}
 }
 
