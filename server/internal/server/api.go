@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rabbit.go/internal/database"
+	"rabbit.go/transport"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -22,6 +23,8 @@ type APIServer struct {
 	dbService    *database.Service
 	onRevoke     func(string, string)
 	runtimeStats func() map[string]interface{}
+	privateRoute func(string, string) (transport.RouteInfo, bool)
+	ready        func() bool
 	prepareOnce  sync.Once
 	handlersMu   sync.Mutex
 	handlers     sync.WaitGroup
@@ -144,6 +147,7 @@ func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 	v1.HandleFunc("/tokens/generate", api.generateToken).Methods("POST")
 	v1.HandleFunc("/teams", api.listTeams).Methods("GET")
 	v1.HandleFunc("/teams/{teamId}/tokens", api.getTeamTokens).Methods("GET")
+	v1.HandleFunc("/teams/{teamId}/tokens/{tokenId}/route", api.getPrivateRoute).Methods("GET")
 	v1.HandleFunc("/stats", api.getStats).Methods("GET")
 	v1.HandleFunc("/health", api.healthCheck).Methods("GET")
 	v1.HandleFunc("/teams/{teamId}/tokens/{tokenId}", func(w http.ResponseWriter, r *http.Request) {
@@ -459,6 +463,10 @@ func (api *APIServer) getStats(w http.ResponseWriter, r *http.Request) {
 
 // healthCheck handles GET /api/v1/health
 func (api *APIServer) healthCheck(w http.ResponseWriter, r *http.Request) {
+	if api.ready != nil && !api.ready() {
+		respondWithJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"success": false, "status": "unhealthy", "error": "transport unavailable"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), metadataTimeout)
 	defer cancel()
 

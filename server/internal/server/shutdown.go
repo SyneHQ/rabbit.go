@@ -157,6 +157,9 @@ func (s *Server) shutdown(ctx context.Context) {
 	if s.controlListener != nil {
 		_ = s.controlListener.Close()
 	}
+	if s.privateListener != nil {
+		_ = s.privateListener.Close()
+	}
 	s.lifecycleMu.Unlock()
 
 	// Stop API admission now; its grace period shares the same deadline as
@@ -199,6 +202,9 @@ func (s *Server) shutdown(ctx context.Context) {
 		s.apiServer.handlers.Wait()
 	}
 	s.wg.Wait()
+	if s.private != nil && s.private.close != nil {
+		s.private.close()
+	}
 	if s.securityMiddleware != nil {
 		s.securityMiddleware.Stop()
 	}

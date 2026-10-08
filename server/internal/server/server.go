@@ -41,6 +41,8 @@ type Server struct {
 	operator         OperatorConfig
 	streamAudit      *streamAuditQueue
 	controlListener  net.Listener
+	privateListener  net.Listener
+	private          *privateConnect
 	tunnels          map[string]*Tunnel
 	pendingConns     map[string]*pendingConnection
 	mu               sync.RWMutex
@@ -99,6 +101,8 @@ type Tunnel struct {
 	streams        map[*tunnelStream]struct{}
 	controlMu      sync.Mutex
 	busyOwner      net.Conn
+	tokenEpoch     string
+	controlEpoch   uint64
 	wg             sync.WaitGroup
 
 	// Database tracking
@@ -134,6 +138,10 @@ func NewServer(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	private, err := loadPrivateConnect(operator.PrivateConnect)
+	if err != nil {
+		return nil, err
+	}
 	var runtimeRouter *notebookruntime.Router
 	if os.Getenv("RABBIT_NOTEBOOK_AUTHORITY_URL") != "" {
 		if os.Getenv("NOTEBOOK_RUNTIME_SERVICE_TOKEN") == os.Getenv("RABBIT_NOTEBOOK_BROKER_TOKEN") {
@@ -151,6 +159,9 @@ func NewServer(config Config) (*Server, error) {
 	}
 	configured := false
 	defer func() {
+		if !configured && private != nil {
+			private.close()
+		}
 		if !configured && runtimeRouter != nil {
 			runtimeRouter.Close()
 		}
@@ -169,6 +180,16 @@ func NewServer(config Config) (*Server, error) {
 		}
 	}()
 	dbService := database.NewService(db)
+	if private != nil {
+		private.tokenActive = func(ctx context.Context, tunnel *Tunnel) (time.Time, error) {
+			tokenID, tokenErr := uuid.Parse(tunnel.TokenID)
+			portID, portErr := uuid.Parse(tunnel.PortAssignID)
+			if tokenErr != nil || portErr != nil {
+				return time.Time{}, net.ErrClosed
+			}
+			return dbService.CheckTransportAuthority(ctx, tunnel.TeamID, tunnel.Token, tokenID, portID)
+		}
+	}
 
 	// Test database connection
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
@@ -184,6 +205,7 @@ func NewServer(config Config) (*Server, error) {
 
 	serverCtx, serverCancel := context.WithCancel(context.Background())
 	server := &Server{
+		private:            private,
 		config:             config,
 		operator:           operator,
 		tunnels:            make(map[string]*Tunnel),
@@ -207,6 +229,8 @@ func NewServer(config Config) (*Server, error) {
 		server.apiServer = NewAPIServer(dbService, config.APIBindAddress, config.APIPort, config.ControlPort)
 		server.apiServer.onRevoke = server.revokeToken
 		server.apiServer.runtimeStats = server.runtimeStats
+		server.apiServer.privateRoute = server.privateRouteInfo
+		server.apiServer.ready = server.transportReady
 	}
 
 	configured = true
@@ -242,6 +266,12 @@ func (s *Server) Start() (err error) {
 	if err != nil {
 		return fmt.Errorf("error starting control listener: %v", err)
 	}
+	if s.private != nil {
+		s.privateListener, err = net.Listen("tcp", s.private.address)
+		if err != nil {
+			return fmt.Errorf("error starting private CONNECT listener: %w", err)
+		}
+	}
 
 	log.Printf("🚀 Tunnel server started on %s:%s", s.config.BindAddress, s.config.ControlPort)
 	log.Printf("🔐 Security middleware enabled")
@@ -270,6 +300,10 @@ func (s *Server) Start() (err error) {
 
 	s.wg.Add(1)
 	go s.handleControlConnections()
+	if s.privateListener != nil {
+		s.wg.Add(1)
+		go s.handlePrivateConnections()
+	}
 
 	return nil
 }
@@ -426,7 +460,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	tunnel.Client = conn
+	s.replaceControlOwnerLocked(tunnel, conn)
 	s.mu.Unlock()
 	err = writeControlFrame(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
 	tunnel.controlMu.Unlock()
@@ -595,6 +629,10 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 	if err != nil {
 		return nil, fmt.Errorf("error generating tunnel ID: %v", err)
 	}
+	tokenEpoch, err := generateTunnelID()
+	if err != nil {
+		return nil, fmt.Errorf("error generating tunnel epoch: %w", err)
+	}
 
 	// Use the pre-assigned port from database
 	remotePort := strconv.Itoa(portAssignment.Port)
@@ -606,6 +644,7 @@ func (s *Server) createTunnel(teamToken *database.TeamToken, portAssignment *dat
 	}
 
 	tunnel := &Tunnel{
+		tokenEpoch:   tokenEpoch,
 		ID:           tunnelID,
 		Token:        teamToken.Token,
 		TeamID:       teamToken.TeamID,
@@ -723,76 +762,26 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 	if client == nil {
 		return
 	}
-	connChan := make(chan net.Conn, 1)
-	rejected := make(chan struct{})
-	connID, err := generateTunnelID()
+	parent := t.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	dataConn, err := s.pairConnection(parent, t, client)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.logConnectionAttempt(clientIP, clientPort, "timeout", "Timeout waiting for data connection")
+		}
 		return
 	}
-	s.mu.Lock()
-	if !s.controlOwnerActiveLocked(t, client) {
-		s.mu.Unlock()
+	defer dataConn.Close()
+	connectionLogID := t.createConnectionLog(clientIP, clientPort)
+	stream, ok := s.beginTunnelStream(t, client, externalConn, dataConn)
+	if !ok {
+		t.finishStreamLog(connectionLogID, 0, 0, "closed", nil)
 		return
 	}
-	s.pendingConns[connID] = &pendingConnection{tunnel: t, owner: client, ready: connChan, rejected: rejected}
-	s.mu.Unlock()
-	defer func() {
-		var unused net.Conn
-		s.mu.Lock()
-		delete(s.pendingConns, connID)
-		select {
-		case unused = <-connChan:
-		default:
-		}
-		s.mu.Unlock()
-		if unused != nil {
-			unused.Close()
-		}
-	}()
-	err = t.writeControl(client, "CONNECT\nCONN_ID:%s\n", connID)
-	if err != nil {
-		return
-	}
-
-	// Wait for data connection with timeout.
-	select {
-	case <-rejected:
-		externalConn.Close()
-		return
-	case dataConn := <-connChan:
-		defer dataConn.Close()
-		// Clean up the pending connection
-		s.mu.Lock()
-		delete(s.pendingConns, connID)
-		active := s.controlOwnerActiveLocked(t, client)
-		s.mu.Unlock()
-		if !active {
-			return
-		}
-
-		log.Printf("Data connection established")
-
-		// Create a connection log entry for this specific connection
-		connectionLogID := t.createConnectionLog(clientIP, clientPort)
-
-		// Check ownership synchronously before either relay starts.
-		stream, ok := s.beginTunnelStream(t, client, externalConn, dataConn)
-		if !ok {
-			t.finishStreamLog(connectionLogID, 0, 0, "closed", nil)
-			return
-		}
-		defer s.endTunnelStream(t, stream)
-		t.bridgeConnectionsWithLogging(externalConn, dataConn, connectionLogID)
-
-	case <-t.stopChan:
-		return
-	case <-time.After(s.pairingTimeout()):
-		log.Printf("Timeout waiting for data connection")
-		s.mu.Lock()
-		delete(s.pendingConns, connID)
-		s.mu.Unlock()
-		t.logConnectionAttempt(clientIP, clientPort, "timeout", "Timeout waiting for data connection")
-	}
+	defer s.endTunnelStream(t, stream)
+	t.bridgeConnectionsWithLogging(externalConn, dataConn, connectionLogID)
 }
 
 // logConnectionAttempt logs a connection attempt (successful or failed)
@@ -1037,6 +1026,10 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 	if err != nil {
 		return fmt.Errorf("failed to generate tunnel ID: %w", err)
 	}
+	tokenEpoch, err := generateTunnelID()
+	if err != nil {
+		return fmt.Errorf("failed to generate tunnel epoch: %w", err)
+	}
 
 	// Create listener on the assigned port
 	listener, err := net.Listen("tcp", net.JoinHostPort(s.tunnelBindAddress(), strconv.Itoa(portAssignment.Port)))
@@ -1046,6 +1039,7 @@ func (s *Server) createRestoredTunnelListener(session *database.ConnectionSessio
 
 	// Create a restored tunnel object that can accept new client connections
 	tunnel := &Tunnel{
+		tokenEpoch:   tokenEpoch,
 		ID:           tunnelID,
 		Token:        token.Token,
 		TeamID:       token.TeamID,

@@ -29,6 +29,9 @@ func (s *Server) replaceControlOwnerLocked(t *Tunnel, next net.Conn) []net.Conn 
 		return nil
 	}
 	t.Client = next
+	if next != nil {
+		t.controlEpoch++
+	}
 	t.busyOwner = nil
 	if previous == nil {
 		return nil
