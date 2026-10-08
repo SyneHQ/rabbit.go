@@ -52,8 +52,14 @@ rejects multiple private addresses; use a literal private IP for such interfaces
 It never falls back to a wildcard or public bind.
 
 The operator YAML and referenced files require root or server-user ownership
-without group/other write access. Private keys also require mode `0600`. Keep
-parent directories under the same trusted ownership and prevent untrusted writes.
+without group/other write access. Private keys default to owner-only access (`0600`
+or `0400`). For root-owned Secret subpath mounts, set `private_key_group: 1000`
+inside `private_connect` and mount keys as `0440` with GID `1000`. The daemon must
+belong to that exact service GID. Group write/execute and all other access remain
+forbidden; arbitrary group/world-readable keys are rejected. The configured group
+applies to both server and authority private keys.
+
+Keep parent directories under the same trusted ownership and prevent untrusted writes.
 Referenced paths are absolute and reject symbolic links and inputs larger than
 64 KiB. Private ingress fails closed on Windows, where ownership verification is
 not implemented. TLS 1.3 and verified client certificates are mandatory.

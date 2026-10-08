@@ -19,4 +19,6 @@ func openOperatorFile(path string) (*os.File, error) {
 }
 
 // Private ingress requires an audited filesystem ownership boundary.
-func operatorFileOwnerAllowed(os.FileInfo) bool { return false }
+func operatorFileOwnerAllowed(os.FileInfo) bool         { return false }
+func operatorFileGroupAllowed(os.FileInfo, uint32) bool { return false }
+func operatorGroupMember(uint32) bool                   { return false }

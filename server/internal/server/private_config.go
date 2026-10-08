@@ -23,6 +23,7 @@ type PrivateConnectConfig struct {
 	PrivateInterface     string         `yaml:"private_interface"`
 	CertificateFile      string         `yaml:"certificate_file"`
 	PrivateKeyFile       string         `yaml:"private_key_file"`
+	PrivateKeyGroup      *uint32        `yaml:"private_key_group"`
 	ClientCAFile         string         `yaml:"client_ca_file"`
 	AuthorityURL         string         `yaml:"authority_url"`
 	AuthorityCAFile      string         `yaml:"authority_ca_file"`
@@ -61,6 +62,9 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 	if err != nil || len(config.Trust) < 1 || len(config.Trust) > 64 {
 		return fail()
 	}
+	if config.PrivateKeyGroup != nil && !operatorGroupMember(*config.PrivateKeyGroup) {
+		return fail()
+	}
 	replayCapacity := config.ReplayCapacity
 	if replayCapacity == 0 {
 		replayCapacity = 16384
@@ -69,7 +73,7 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 	if err != nil {
 		return fail()
 	}
-	certificate, err := privateCertificate(config.CertificateFile, config.PrivateKeyFile)
+	certificate, err := privateCertificate(config.CertificateFile, config.PrivateKeyFile, config.PrivateKeyGroup)
 	if err != nil {
 		return fail()
 	}
@@ -81,7 +85,7 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 	if err != nil {
 		return fail()
 	}
-	authorityCertificate, err := privateCertificate(config.AuthorityCertificate, config.AuthorityPrivateKey)
+	authorityCertificate, err := privateCertificate(config.AuthorityCertificate, config.AuthorityPrivateKey, config.PrivateKeyGroup)
 	if err != nil {
 		return fail()
 	}
@@ -128,6 +132,10 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 }
 
 func privateFile(path string, secret bool) ([]byte, error) {
+	return privateFileForGroup(path, secret, nil)
+}
+
+func privateFileForGroup(path string, secret bool, trustedGroup *uint32) ([]byte, error) {
 	if !filepath.IsAbs(path) {
 		return nil, transport.ErrAuthority
 	}
@@ -137,7 +145,10 @@ func privateFile(path string, secret bool) ([]byte, error) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 || info.Mode().Perm()&0022 != 0 || !operatorFileOwnerAllowed(info) || secret && info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 || info.Mode().Perm()&0022 != 0 || !operatorFileOwnerAllowed(info) {
+		return nil, transport.ErrAuthority
+	}
+	if secret && info.Mode().Perm()&0077 != 0 && (info.Mode().Perm()&0077 != 0040 || trustedGroup == nil || !operatorGroupMember(*trustedGroup) || !operatorFileGroupAllowed(info, *trustedGroup)) {
 		return nil, transport.ErrAuthority
 	}
 	data, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
@@ -147,12 +158,12 @@ func privateFile(path string, secret bool) ([]byte, error) {
 	return data, nil
 }
 
-func privateCertificate(certFile, keyFile string) (tls.Certificate, error) {
+func privateCertificate(certFile, keyFile string, trustedGroup *uint32) (tls.Certificate, error) {
 	cert, err := privateFile(certFile, false)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	key, err := privateFile(keyFile, true)
+	key, err := privateFileForGroup(keyFile, true, trustedGroup)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
