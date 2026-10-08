@@ -25,7 +25,10 @@ network capacity does not prove remote SQL stopped or release execution quota.
 
 Individual admissions and joins touch only their own parent. Explicit maintenance
 scans the bounded registry and must continue during drain until all joins finish.
-The ledger has no background goroutines or networking.
+The ledger has no background goroutines or networking. The dormant middleware
+adapter binds each allocation to its accepted socket, defers ordinary per-IP
+checks until classification, and retains DATA handoff owners until they join.
+Its construction-only mode rejects legacy admission and mismatched ceilings.
 
 Activation still requires all ingress paths to share this ledger, bounded issuer
 admission before dialing, and native PostgreSQL cancellation tests at saturation.
