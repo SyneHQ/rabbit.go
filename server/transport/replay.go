@@ -35,13 +35,26 @@ func (r *ReplayRegistry) Consume(v VerifiedOpen, now time.Time) error {
 	if r == nil || v.digest == "" || validateClaims(v.claims, now) != nil || !now.Before(v.peerUntil) {
 		return ErrAuthority
 	}
+	return r.consume(v.claims, now)
+}
+
+// ConsumeReservation shares the version-1 replay namespace and capacity. Call
+// only after live authority, parent custody and both-socket admission succeed.
+func (r *ReplayRegistry) ConsumeReservation(v VerifiedReservation, now time.Time) error {
+	if r == nil || v.digest == "" || validateReservationClaims(v.claims, now) != nil || !now.Before(v.peerUntil) {
+		return ErrAuthority
+	}
+	return r.consume(v.claims.OpenClaims, now)
+}
+
+func (r *ReplayRegistry) consume(claims OpenClaims, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for len(r.expires) > 0 && r.expires[0].until <= now.Unix() {
 		item := heap.Pop(&r.expires).(expiryEntry)
 		delete(r.entries, item.key)
 	}
-	key := v.claims.Issuer + "\x00" + v.claims.Audience + "\x00" + v.claims.ID
+	key := claims.Issuer + "\x00" + claims.Audience + "\x00" + claims.ID
 	if _, exists := r.entries[key]; exists {
 		return ErrReplay
 	}
@@ -49,7 +62,7 @@ func (r *ReplayRegistry) Consume(v VerifiedOpen, now time.Time) error {
 		return ErrCapacity
 	}
 	r.entries[key] = struct{}{}
-	heap.Push(&r.expires, expiryEntry{key: key, until: v.claims.ExpiresAt})
+	heap.Push(&r.expires, expiryEntry{key: key, until: claims.ExpiresAt})
 	return nil
 }
 
