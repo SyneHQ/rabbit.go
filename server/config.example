@@ -1,52 +1,32 @@
-# Select standalone for a new installation. Existing application deployments use postgoose.
+# Rabbit configuration. Copy to .env for local development; inject production
+# values through your service's secret provider. Never commit populated secrets.
+
+# New metadata: standalone. Existing application metadata: postgoose.
+# The identity mode cannot be changed on the same metadata database.
 RABBIT_IDENTITY_MODE=standalone
 
-# Database Configuration for Syne Tunneler
-# Copy this file to .env and update with your actual database credentials
+# Local development only. Both stores are needed by the migration command too.
+DATABASE_URL=postgres://postgres:password@localhost:5432/rabbit?sslmode=disable
+REDIS_URL=redis://localhost:6379/0
 
-# PostgreSQL Database URL
-# Format: postgres://username:password@hostname:port/database?sslmode=disable
-DATABASE_URL=postgres://postgres:password@localhost:5432/syne_tunneler?sslmode=disable
+# Production metadata must stay private. Use PostgreSQL sslmode=verify-full with
+# the correct hostname/CA and authenticated Redis over rediss://.
 
-# Redis URL
-# Format: redis://[:password@]hostname:port[/database]
-REDIS_URL=redis://localhost:6379
+# Required for management: supply a secret of at least 32 characters.
+RABBIT_SERVICE_TOKEN=
 
-# Optional: Redis Database Number (default: 0)
-REDIS_DB=0
+# Mount a readable PEM pair. These are file paths, not PEM contents.
+RABBIT_TLS_CERT_FILE=/run/rabbit-tls/tls.crt
+RABBIT_TLS_KEY_FILE=/run/rabbit-tls/tls.key
+ENVIRONMENT=production
 
-# Server Configuration
-BIND_ADDRESS=0.0.0.0
-CONTROL_PORT=9999
-LOG_LEVEL=info
+# Optional admission and timeout overrides; see docs/operator-limits.md.
+RABBIT_MAX_CONNECTIONS=4096
+RABBIT_MAX_CONNECTIONS_PER_IP=100
+RABBIT_IDLE_TIMEOUT=30m
 
-# Port Assignment Range (for tunnel connections)
-MIN_PORT=10000
-MAX_PORT=20000
-
-# Session Configuration
-SESSION_TIMEOUT=24h
-CLEANUP_INTERVAL=1h
-
-# Example PostgreSQL setup for development:
-#
-# 1. Install PostgreSQL
-# 2. Create database and user:
-#    CREATE DATABASE syne_tunneler;
-#    CREATE USER tunneler WITH ENCRYPTED PASSWORD 'secure_password';
-#    GRANT ALL PRIVILEGES ON DATABASE syne_tunneler TO tunneler;
-#
-# 3. Update DATABASE_URL above with your credentials
-#
-# Example Redis setup for development:
-#
-# 1. Install Redis
-# 2. Start Redis server: redis-server
-# 3. Update REDIS_URL above if needed (default should work)
-
-# Production Configuration Notes:
-# - Use strong passwords for database connections
-# - Enable SSL/TLS for PostgreSQL in production (change sslmode=require)
-# - Configure Redis with authentication in production
-# - Use environment-specific values for sensitive data
-# - Consider using connection pooling for high-traffic scenarios 
+# Bindings and API port are CLI flags, not environment settings:
+# rabbit.go server --bind 0.0.0.0 --port 9999 \
+#   --tunnel-bind 127.0.0.1 --api-bind 127.0.0.1 --api-port 3422
+# Loopback is shared only within the same network namespace.
+# Token ingress ports are allocated from 10000-65535; MIN_PORT/MAX_PORT do not apply.

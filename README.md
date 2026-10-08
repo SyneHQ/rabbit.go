@@ -42,9 +42,9 @@ export ENVIRONMENT=production
   --tunnel-bind 127.0.0.1 --api-bind 127.0.0.1 --api-port 8080
 ```
 
-The metadata database must contain Rabbit's tables and your application's team and
-membership records. The current standalone migration does not provision the full
-identity schema. See [deployment notes](docs/private-database-transport.md#metadata-and-management).
+Initialize metadata before starting the server. New deployments can use Rabbit's
+standalone teams; existing application deployments can retain their current identity
+adapter. Select the mode explicitly and follow the [identity guide](docs/standalone-identity.md).
 
 Issue a team-scoped tunnel token through the authenticated management API, then
 start the client on the machine that can reach the database:
@@ -63,8 +63,8 @@ and verified database TLS settings. The tunnel token is separate from those cred
 
 - Database ingress and management API bind to loopback by default. For separate
   workers, select a private ingress IP and restrict access to those workers.
-- The client allows 64 simultaneous streams by default. Excess requests time out;
-  it does not silently queue unlimited work or replay queries after reconnecting.
+- The client allows 64 simultaneous streams by default. New peers reject excess
+  requests explicitly; older peers use the pairing timeout. Reconnects do not replay queries.
 - TLS session reuse reduces repeated handshakes. Traffic stays encrypted and
   certificate verification remains enabled.
 - Idle deadline updates are coalesced; explicit deadlines remain upper bounds.
@@ -76,6 +76,8 @@ and verified database TLS settings. The tunnel token is separate from those cred
 | Topic | Guide |
 | --- | --- |
 | Private databases, Kelvo and secure deployment | [Transport guide](docs/private-database-transport.md) |
+| Metadata setup, teams and identity compatibility | [Identity configuration](docs/standalone-identity.md) |
+| Admission limits, timeouts and operator statistics | [Operator configuration](docs/operator-limits.md) |
 | Client flags, trust and reconnect behavior | [Client usage](client/TUNNEL_CLIENT_USAGE.md) |
 | Control channel and database stream lifecycle | [Architecture](TUNNEL_SYSTEM_SUMMARY.md) |
 | Measured transport overhead | [Before and after](docs/transport-performance.md) |

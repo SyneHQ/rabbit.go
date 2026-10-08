@@ -2,16 +2,19 @@
 
 Existing installations use `postgoose` when `RABBIT_IDENTITY_MODE` is absent. That adapter reads application-owned `Team` and `postgoose_user_teams` tables. Rabbit does not migrate those tables.
 
-For a new standalone installation:
+For a new standalone installation, first supply `DATABASE_URL` and `REDIS_URL`
+through your secret provider. Both commands connect to both stores.
 
 ```sh
 export RABBIT_IDENTITY_MODE=standalone
-export DATABASE_URL='postgres://...'
-export REDIS_URL='redis://...'
-rabbit.go database migrate internal/database/migrations.sql
+# Migration path inside the published image:
+rabbit.go database migrate /usr/local/bin/internal/database/migrations.sql
 rabbit.go database bootstrap-team analytics 'Analytics' first-owner
-rabbit.go server
 ```
+
+For a source build, use `server/internal/database/migrations.sql` from the repository
+root. Configure the control TLS certificate and management token before starting
+the server; see the [deployment guide](private-database-transport.md#metadata-and-management).
 
 The bootstrap command creates one team and its owner. Existing IDs or names fail without changing permissions. It requires operator access to the metadata database.
 
