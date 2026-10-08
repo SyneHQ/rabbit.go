@@ -123,7 +123,7 @@ func TestStandaloneMigrationTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.ReleasePortLock(port.Port)
+	defer db.ReleasePortLock(ctx, port.Port, token.ID)
 	if _, _, err := service.AuthenticateToken(ctx, token.Token); err != nil {
 		t.Fatalf("new token rejected: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestIdentityBindingRejectsSameIDAcrossModes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer db.ReleasePortLock(port.Port)
+			defer db.ReleasePortLock(ctx, port.Port, token.ID)
 			if _, _, err := service.AuthenticateToken(ctx, token.Token); err != nil {
 				t.Fatal(err)
 			}
