@@ -4,20 +4,34 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Teams table
-CREATE TABLE IF NOT EXISTS "Team" (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    is_active BOOLEAN DEFAULT TRUE
+-- Shared tokens belong to one identity authority. The service binds this once.
+CREATE TABLE IF NOT EXISTS rabbit_identity_binding (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),
+    mode TEXT NOT NULL CHECK(mode IN ('standalone','postgoose')),
+    bound_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Team tokens table (references existing Team table without constraint)
+-- Rabbit owns these standalone identities. Application identity tables stay unchanged.
+CREATE TABLE IF NOT EXISTS rabbit_teams (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS rabbit_team_memberships (
+    team_id VARCHAR(255) NOT NULL REFERENCES rabbit_teams(id),
+    user_id VARCHAR(255) NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('OWNER','ADMIN','MEMBER')),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    PRIMARY KEY(team_id,user_id)
+);
+
+-- Team tokens support either identity mode without modifying external tables.
 CREATE TABLE IF NOT EXISTS team_tokens (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    team_id VARCHAR(255) NOT NULL, -- References Team(id) but no constraint since it's managed elsewhere
+    team_id VARCHAR(255) NOT NULL, -- Resolved by the configured identity mode.
     token VARCHAR(512) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -30,7 +44,7 @@ CREATE TABLE IF NOT EXISTS team_tokens (
 -- Port assignments table
 CREATE TABLE IF NOT EXISTS port_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    team_id VARCHAR(255) NOT NULL, -- References Team(id) but no constraint
+    team_id VARCHAR(255) NOT NULL, -- Resolved by the configured identity mode.
     token_id UUID NOT NULL REFERENCES team_tokens(id) ON DELETE CASCADE,
     port INTEGER NOT NULL,
     protocol VARCHAR(20) NOT NULL DEFAULT 'tcp',
@@ -48,7 +62,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS port_assignments_reserved_port_protocol_key
 -- Connection sessions table (for active connections tracking)
 CREATE TABLE IF NOT EXISTS connection_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    team_id VARCHAR(255) NOT NULL, -- References Team(id) but no constraint
+    team_id VARCHAR(255) NOT NULL, -- Resolved by the configured identity mode.
     token_id UUID NOT NULL REFERENCES team_tokens(id) ON DELETE CASCADE,
     port_assign_id UUID NOT NULL REFERENCES port_assignments(id) ON DELETE CASCADE,
     client_ip VARCHAR(45) NOT NULL,
@@ -63,7 +77,7 @@ CREATE TABLE IF NOT EXISTS connection_sessions (
 -- Connection logs table (for historical tracking)
 CREATE TABLE IF NOT EXISTS connection_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    team_id VARCHAR(255) NOT NULL, -- References Team(id) but no constraint
+    team_id VARCHAR(255) NOT NULL, -- Resolved by the configured identity mode.
     token_id UUID NOT NULL REFERENCES team_tokens(id) ON DELETE CASCADE,
     port_assign_id UUID NOT NULL REFERENCES port_assignments(id) ON DELETE CASCADE,
     session_id UUID NOT NULL,
@@ -105,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_connection_logs_status ON connection_logs(status)
 CREATE INDEX IF NOT EXISTS idx_connection_logs_client_ip ON connection_logs(client_ip);
 
 -- Function to automatically update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+CREATE OR REPLACE FUNCTION rabbit_update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -114,16 +128,16 @@ END;
 $$ language 'plpgsql';
 
 -- Triggers for updating updated_at columns (drop and recreate to avoid conflicts)
-DROP TRIGGER IF EXISTS update_teams_updated_at ON "Team";
-CREATE TRIGGER update_teams_updated_at BEFORE UPDATE ON "Team"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS rabbit_teams_updated_at ON rabbit_teams;
+CREATE TRIGGER rabbit_teams_updated_at BEFORE UPDATE ON rabbit_teams
+    FOR EACH ROW EXECUTE FUNCTION rabbit_update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_port_assignments_updated_at ON port_assignments;
 CREATE TRIGGER update_port_assignments_updated_at BEFORE UPDATE ON port_assignments
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION rabbit_update_updated_at_column();
 
 -- Function to calculate connection time when ending a session
-CREATE OR REPLACE FUNCTION calculate_connection_time()
+CREATE OR REPLACE FUNCTION rabbit_calculate_connection_time()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.ended_at IS NOT NULL AND OLD.ended_at IS NULL THEN
@@ -136,7 +150,7 @@ $$ language 'plpgsql';
 -- Trigger for calculating connection time (drop and recreate to avoid conflicts)
 DROP TRIGGER IF EXISTS calculate_connection_time_trigger ON connection_logs;
 CREATE TRIGGER calculate_connection_time_trigger BEFORE UPDATE ON connection_logs
-    FOR EACH ROW EXECUTE FUNCTION calculate_connection_time();
+    FOR EACH ROW EXECUTE FUNCTION rabbit_calculate_connection_time();
 
 -- View for connection statistics
 CREATE OR REPLACE VIEW connection_stats AS

@@ -27,16 +27,25 @@ func NewService(db *Database) *Service {
 
 // GetTeamByID retrieves a team by ID
 func (s *Service) GetTeamByID(ctx context.Context, id string) (*Team, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.GetTeamByID(ctx, id)
 }
 
 // GetTeamByName retrieves a team by name
 func (s *Service) GetTeamByName(ctx context.Context, name string) (*Team, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.GetTeamByName(ctx, name)
 }
 
 // GenerateTokenForTeam creates a new token for an existing team with automatic port assignment
 func (s *Service) GenerateTokenForTeam(ctx context.Context, teamID string, tokenName, tokenDescription string, expiresAt *time.Time) (*TeamToken, *PortAssignment, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, nil, err
+	}
 	return s.repo.CreateTokenForTeam(ctx, teamID, tokenName, tokenDescription, expiresAt)
 }
 
@@ -44,6 +53,9 @@ func (s *Service) GenerateTokenForTeam(ctx context.Context, teamID string, token
 
 // AuthenticateToken validates a token and returns team and port information
 func (s *Service) AuthenticateToken(ctx context.Context, token string) (*TeamToken, *PortAssignment, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, nil, err
+	}
 	// Get team token
 	teamToken, err := s.repo.GetTeamTokenByToken(ctx, token)
 	if err != nil {
@@ -158,16 +170,17 @@ func (s *Service) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("redis connection failed: %w", err)
 	}
 
-	// Test basic query
-	var count int
-	if err := s.db.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM public.\"Team\"").Scan(&count); err != nil {
-		return fmt.Errorf("database query failed: %w", err)
+	if err := s.db.ValidateIdentitySchema(ctx); err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (s *Service) ListTeamsWithTokens(ctx context.Context) ([]TokenRow, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.ListTeamsWithTokens(ctx)
 }
 
@@ -177,7 +190,7 @@ func (s *Service) GetDatabaseStats(ctx context.Context) (map[string]interface{},
 
 	// Count teams
 	var teamCount int
-	if err := s.db.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM public.\"Team\" WHERE is_active = true").Scan(&teamCount); err == nil {
+	if err := s.db.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+s.db.identityTeams()+" t WHERE is_active").Scan(&teamCount); err == nil {
 		stats["active_teams"] = teamCount
 	}
 
@@ -273,16 +286,25 @@ func (s *Service) GetRestoredTunnelInfo(ctx context.Context, sessionID uuid.UUID
 
 // ListTokensByTeamID retrieves all tokens for a team
 func (s *Service) ListTokensByTeamID(ctx context.Context, teamID string) ([]TeamToken, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.ListTokensByTeamID(ctx, teamID)
 }
 
 // ListPortAssignmentsByTeamID retrieves all port assignments for a team
 func (s *Service) ListPortAssignmentsByTeamID(ctx context.Context, teamID string) ([]PortAssignment, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.ListPortAssignmentsByTeamID(ctx, teamID)
 }
 
 // Delete a tcp tunnel for a team
 func (s *Service) DeleteTunnelForTeam(ctx context.Context, teamID string, tokenID uuid.UUID) (*PortAssignment, error) {
+	if err := s.db.EnsureIdentityMode(ctx); err != nil {
+		return nil, err
+	}
 	portAssignment, err := s.repo.DeleteTokenForTeam(ctx, teamID, tokenID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete token: %w", err)
