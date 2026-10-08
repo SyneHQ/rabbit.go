@@ -11,8 +11,10 @@ import (
 	"rabbit.go/internal/middleware"
 )
 
-// OperatorConfig contains limits only. Credentials remain in their existing secret inputs.
+// OperatorConfig contains installation-owned limits and private ingress trust.
+// Private keys remain in referenced files.
 type OperatorConfig struct {
+	PrivateConnect       *PrivateConnectConfig     `yaml:"private_connect"`
 	Security             middleware.SecurityConfig `yaml:"security"`
 	PairingTimeout       time.Duration             `yaml:"pairing_timeout"`
 	ControlWriteTimeout  time.Duration             `yaml:"control_write_timeout"`
@@ -41,6 +43,9 @@ func LoadOperatorConfig(path string) (OperatorConfig, error) {
 		var extra any
 		if err := decoder.Decode(&extra); err != io.EOF {
 			return config, fmt.Errorf("operator configuration must contain one YAML document")
+		}
+		if config.PrivateConnect != nil && (info.Mode().Perm()&0022 != 0 || !operatorFileOwnerAllowed(info)) {
+			return config, fmt.Errorf("private CONNECT configuration requires root or server ownership without group or other write access")
 		}
 	}
 	var err error
