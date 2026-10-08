@@ -16,9 +16,10 @@ import (
 
 // APIServer represents the HTTP API server
 type APIServer struct {
-	server    *http.Server
-	dbService *database.Service
-	onRevoke  func(string, string)
+	server       *http.Server
+	dbService    *database.Service
+	onRevoke     func(string, string)
+	runtimeStats func() map[string]interface{}
 }
 
 // TokenGenerationRequest represents the request body for token generation
@@ -125,6 +126,8 @@ func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 	// Add CORS middleware
 	router.Use(corsMiddleware)
 	router.Use(loggingMiddleware)
+
+	router.HandleFunc("/operator/transport-stats", api.operatorTransportStats).Methods("GET")
 
 	// API routes
 	v1 := router.PathPrefix("/api/v1").Subrouter()
