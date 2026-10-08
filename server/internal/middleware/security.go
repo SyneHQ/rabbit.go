@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"rabbit.go/transport"
 )
 
 // SecurityConfig holds configuration for security middleware
@@ -75,6 +77,8 @@ type SecurityMiddleware struct {
 	globalConnections int
 	mu                sync.RWMutex
 	trustedNets       []*net.IPNet
+	reservations      *transport.ReservationAccounting
+	provisional       map[*transport.AdmittedSocket]*ProvisionalConnection
 
 	// Cleanup ticker
 	cleanupTicker *time.Ticker
@@ -144,32 +148,38 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	if sm.reservations != nil {
+		return fmt.Errorf("reserved admission requires a provisional connection")
+	}
 	// Trust bypasses per-IP rate limits, never the process capacity limit.
 	// Reject before allocating per-IP state when the server is already full.
 	if sm.globalConnections >= sm.config.MaxGlobalConnections {
 		return fmt.Errorf("server connection limit reached")
 	}
 
-	// Initialize IP stats if not exists
+	stats, trusted, err := sm.checkIPLocked(clientIP, clientAddr.IP, time.Now())
+	if err != nil {
+		return err
+	}
+	sm.recordIPAdmissionLocked(stats, trusted, time.Now())
+	sm.globalConnections++
+	return nil
+}
+
+// checkIPLocked checks ordinary traffic without charging an admitted socket.
+// Reserved traffic never changes an ordinary client's concurrent/rate counters.
+func (sm *SecurityMiddleware) checkIPLocked(clientIP string, ip net.IP, now time.Time) (*IPStats, bool, error) {
 	if sm.ipStats[clientIP] == nil {
 		sm.ipStats[clientIP] = &IPStats{}
 	}
-
 	stats := sm.ipStats[clientIP]
-	now := time.Now()
-	if sm.isTrustedIP(clientAddr.IP) {
-		stats.CurrentConnections++
-		stats.LastActivity = now
-		// A trusted client needs no rate history. In particular, pooled DB
-		// connections must not grow a timestamp slice without a per-IP bound.
-		stats.HourlyConnections = nil
-		sm.globalConnections++
-		return nil
+	if sm.isTrustedIP(ip) {
+		return stats, true, nil
 	}
 
 	// Check if IP is blacklisted
 	if stats.IsBlacklisted && now.Before(stats.BlacklistUntil) {
-		return fmt.Errorf("IP %s is blacklisted until %v", clientIP, stats.BlacklistUntil)
+		return nil, false, fmt.Errorf("IP %s is blacklisted until %v", clientIP, stats.BlacklistUntil)
 	}
 
 	// Remove blacklist if expired
@@ -181,7 +191,7 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 	// Check per-IP concurrent connection limit
 	if stats.CurrentConnections >= sm.config.MaxConnectionsPerIP {
 		sm.recordViolation(clientIP, stats, "per-IP concurrent connection limit exceeded")
-		return fmt.Errorf("too many concurrent connections from IP %s", clientIP)
+		return nil, false, fmt.Errorf("too many concurrent connections from IP %s", clientIP)
 	}
 
 	// Clean old hourly connections
@@ -190,22 +200,25 @@ func (sm *SecurityMiddleware) ValidateConnection(conn net.Conn) error {
 	// Check hourly connection limit
 	if len(stats.HourlyConnections) >= sm.config.MaxConnectionsPerHour {
 		sm.recordViolation(clientIP, stats, "hourly connection limit exceeded")
-		return fmt.Errorf("hourly connection limit exceeded for IP %s", clientIP)
+		return nil, false, fmt.Errorf("hourly connection limit exceeded for IP %s", clientIP)
 	}
 
 	// Check for burst attacks
 	if sm.detectBurst(stats, now) {
 		sm.recordViolation(clientIP, stats, "burst attack detected")
-		return fmt.Errorf("burst attack detected from IP %s", clientIP)
+		return nil, false, fmt.Errorf("burst attack detected from IP %s", clientIP)
 	}
+	return stats, false, nil
+}
 
-	// All checks passed - allow connection
+func (sm *SecurityMiddleware) recordIPAdmissionLocked(stats *IPStats, trusted bool, now time.Time) {
 	stats.CurrentConnections++
-	stats.HourlyConnections = append(stats.HourlyConnections, now)
+	if trusted {
+		stats.HourlyConnections = nil
+	} else {
+		stats.HourlyConnections = append(stats.HourlyConnections, now)
+	}
 	stats.LastActivity = now
-	sm.globalConnections++
-
-	return nil
 }
 
 // RecordConnectionClosed should be called when a connection is closed
@@ -219,6 +232,11 @@ func (sm *SecurityMiddleware) RecordConnectionClosed(conn net.Conn) {
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	// Provisional sockets carry an exact allocation. Legacy IP-only completion
+	// must never release one of those allocations.
+	if sm.reservations != nil {
+		return
+	}
 
 	if stats := sm.ipStats[clientIP]; stats != nil {
 		if stats.CurrentConnections > 0 {
@@ -444,6 +462,7 @@ type secureConnection struct {
 	readDeadline, writeDeadline connectionDeadline
 	closeOnce                   sync.Once
 	closeErr                    error
+	untracked                   bool
 }
 
 // Coalescing reduces runtime poller updates during continuous transfers. Every
@@ -557,8 +576,10 @@ func (sc *secureConnection) CloseWrite() error {
 
 func (sc *secureConnection) Close() error {
 	sc.closeOnce.Do(func() {
-		sc.sm.RecordConnectionClosed(sc.Conn)
 		sc.closeErr = sc.Conn.Close()
+		if !sc.untracked {
+			sc.sm.RecordConnectionClosed(sc.Conn)
+		}
 	})
 	return sc.closeErr
 }
