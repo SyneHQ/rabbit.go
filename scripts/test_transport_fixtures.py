@@ -7,6 +7,8 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 import transport_fixtures as controller
 
@@ -23,7 +25,7 @@ class FakeDocker:
                 return value
         return None
 
-    def run(self, *arguments, timeout=30):
+    def run(self, *arguments, timeout=30, input_text=None):
         self.commands.append(arguments)
         if arguments[0] == "logs":
             return "fixture logs"
@@ -38,19 +40,27 @@ class FakeDocker:
 
 
 class FakeStartingDocker(FakeDocker):
-    def run(self, *arguments, timeout=30):
+    def __init__(self):
+        super().__init__()
+        self.inputs = []
+
+    def run(self, *arguments, timeout=30, input_text=None):
+        if input_text is not None:
+            self.inputs.append(input_text)
         if arguments[0] in ("logs", "rm"):
             return super().run(*arguments, timeout=timeout)
         self.commands.append(arguments)
         if arguments[0] == "pull":
             return "image available"
         if arguments[0] == "create":
-            identifier = ("a" if not self.objects else "b") * 64
+            identifier = chr(ord("a") + len(self.objects)) * 64
             label = arguments[arguments.index("--label") + 1]
             label_name, label_value = label.split("=", 1)
             self.objects[identifier] = {
                 "Id": identifier, "Name": arguments[arguments.index("--name") + 1],
-                "Config": {"Labels": {label_name: label_value}}, "State": {"Running": False},
+                "Config": {"Labels": {label_name: label_value}, "User": "999:999"}, "State": {"Running": False},
+                "HostConfig": {"ReadonlyRootfs": True, "NetworkMode": "none", "PortBindings": {}},
+                "Image": "sha256:" + "c" * 64,
             }
             return identifier
         if arguments[0] == "start":
@@ -58,11 +68,17 @@ class FakeStartingDocker(FakeDocker):
             return arguments[1]
         if arguments[0] == "exec":
             if arguments[2:] == ("cat", "/proc/1/comm"):
-                return "postgres"
+                return "mysqld" if "-mysql-" in self.objects[arguments[1]]["Name"] else "postgres"
             if arguments[2] == "pg_isready":
                 return "accepting connections"
             if arguments[2] == "redis-cli":
                 return "PONG"
+            if arguments[2:] == ("id", "-u"):
+                return "999"
+            if arguments[2:] == ("cat", "/proc/1/status"):
+                return "Uid:\t999\t999\t999\t999\n"
+            if arguments[1] == "-i" and arguments[3] == "mysql":
+                return {"SELECT 1;": "1", "SELECT VERSION();": "8.4.fixture"}.get(input_text, "")
         raise AssertionError(f"unexpected Docker action: {arguments}")
 
 
@@ -155,6 +171,42 @@ class FixtureCleanupTests(unittest.TestCase):
         environment = json.loads((self.root / "fixtures.json").read_text())
         self.assertEqual(set(environment), {"SECURITY_TEST_DATABASE_URL", "RABBIT_TRANSPORT_DATABASE_URL", "RABBIT_TRANSPORT_REDIS_URL"})
         fixtures.cleanup()
+
+    def test_optional_mysql_is_socket_only_tls_and_select_only(self):
+        controller.prepare_root(self.root)
+        docker = FakeStartingDocker()
+        fixtures = controller.Fixtures(self.root, docker, mysql=True)
+        def certificate(argv, **kwargs):
+            self.assertEqual(argv[0], "openssl")
+            Path(argv[argv.index("-keyout")+1]).write_text("generated fixture key")
+            Path(argv[argv.index("-out")+1]).write_text("generated fixture CA")
+            return SimpleNamespace(returncode=0)
+        with patch.object(controller.subprocess, "run", side_effect=certificate):
+            fixtures.start(threading.Event(), time.monotonic()+60)
+        creates = [call for call in docker.commands if call[0] == "create"]
+        self.assertEqual(len(creates), 3)
+        mysql = creates[-1]
+        self.assertIn(controller.MYSQL_IMAGE, mysql)
+        self.assertEqual(mysql[mysql.index("--network")+1], "none")
+        self.assertEqual(mysql[mysql.index("--memory")+1], "768m")
+        self.assertIn("--skip-networking", mysql)
+        self.assertIn("--require-secure-transport=ON", mysql)
+        self.assertIn("--tls-version=TLSv1.3", mysql)
+        self.assertNotIn("--publish", mysql)
+        self.assertIn("--read-only", mysql)
+        environment = json.loads((self.root/"fixtures.json").read_text())
+        password = environment["RABBIT_TRANSPORT_MYSQL_PASSWORD"]
+        self.assertRegex(password, r"^[0-9a-f]{64}$")
+        self.assertFalse(any(password in argument for call in docker.commands for argument in call))
+        schema = next(value for value in docker.inputs if "CREATE USER" in value)
+        self.assertIn("REQUIRE SSL", schema)
+        self.assertIn("GRANT SELECT ON rabbit_native.*", schema)
+        self.assertNotIn("GRANT ALL", schema)
+        proof = json.loads((self.root/"mysql-qualification.json").read_text())
+        self.assertEqual(proof["uid"], 999)
+        self.assertEqual(proof["server_version"], "8.4.fixture")
+        fixtures.cleanup()
+        self.assertEqual(docker.objects, {})
 
 
 if __name__ == "__main__":
