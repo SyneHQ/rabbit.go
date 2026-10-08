@@ -333,8 +333,7 @@ func (r *Repository) EndConnectionSession(ctx context.Context, sessionID uuid.UU
 
 	// Remove from Redis
 	if err := r.db.DeleteActiveSessionContext(ctx, sessionID); err != nil {
-		// Log error but don't fail the operation
-		fmt.Printf("Warning: failed to remove session from Redis: %v\n", err)
+		return fmt.Errorf("failed to remove session from Redis: %w", err)
 	}
 
 	return nil

@@ -136,6 +136,16 @@ Existing database sessions are not migrated to new sockets.
 4. To roll back, stop the replacement and select the previous compatible image while
    retaining current identity/security settings. Recheck schema compatibility first.
 
+Rabbit gives shutdown one 30-second budget across listeners, tunnels, management
+requests and audit writes. Allow more than 30 seconds in the container stop grace
+period. A deadline or cleanup failure produces a nonzero exit; it does not prove
+that every session record or audit write reached the metadata database.
+
+Embedded callers can use `Shutdown(ctx)` to shorten that budget. If it returns
+`ErrShutdownIncomplete`, the same teardown owner still holds unfinished handlers
+and pools. Use `WaitShutdown(ctx)` to join it; do not close those pools separately.
+The CLI exits on that error, so the OS releases its remaining process resources.
+
 There is no down-migration command. A metadata restore requires a separate recovery
 decision: restoring old tokens can undo revocations. Do not replay interrupted writes
 or assume Rabbit provides active-active tunnel ownership/failover.

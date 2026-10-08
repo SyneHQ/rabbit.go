@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -130,20 +131,20 @@ func (s *Service) UpdateConnectionActivity(ctx context.Context, sessionID, logID
 
 // EndConnection closes a connection session and log entry
 func (s *Service) EndConnection(ctx context.Context, sessionID, logID uuid.UUID, status string, errorMessage *string) error {
+	var errs []error
 	// End session
 	if err := s.repo.EndConnectionSession(ctx, sessionID); err != nil {
-		// Log error but continue
-		fmt.Printf("Warning: failed to end session: %v\n", err)
+		errs = append(errs, fmt.Errorf("failed to end session: %w", err))
 	}
 
 	// End connection log
 	if logID != uuid.Nil {
 		if err := s.repo.EndConnectionLog(ctx, logID, status, errorMessage); err != nil {
-			return fmt.Errorf("failed to end connection log: %w", err)
+			errs = append(errs, fmt.Errorf("failed to end connection log: %w", err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // Statistics and health
