@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,15 +84,32 @@ func (q *streamAuditQueue) run() {
 
 // close drains within one total budget. Cancelled database writes cannot delay relay teardown.
 func (q *streamAuditQueue) close() {
-	q.closeOnce.Do(func() { q.mu.Lock(); q.closed = true; close(q.items); q.mu.Unlock() })
-	timer := time.NewTimer(q.shutdownTimeout)
-	defer timer.Stop()
+	_ = q.closeContext(context.Background())
+}
+
+func (q *streamAuditQueue) closeContext(parent context.Context) error {
+	q.closeInput()
+	ctx, cancel := context.WithTimeout(parent, q.shutdownTimeout)
+	defer cancel()
+	defer q.cancel()
 	select {
 	case <-q.done:
-		q.cancel()
-	case <-timer.C:
-		q.cancel()
+		if q.failed.Load() != 0 || q.dropped.Load() != 0 {
+			return errors.New("stream audit contains failed or dropped records")
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
+
+func (q *streamAuditQueue) closeInput() {
+	q.closeOnce.Do(func() { q.mu.Lock(); q.closed = true; close(q.items); q.mu.Unlock() })
+}
+
+func (q *streamAuditQueue) abort() {
+	q.closeInput()
+	q.cancel()
 }
 
 func (q *streamAuditQueue) stats() map[string]interface{} {

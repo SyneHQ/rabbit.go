@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"rabbit.go/internal/database"
@@ -20,6 +22,11 @@ type APIServer struct {
 	dbService    *database.Service
 	onRevoke     func(string, string)
 	runtimeStats func() map[string]interface{}
+	prepareOnce  sync.Once
+	handlersMu   sync.Mutex
+	handlers     sync.WaitGroup
+	stopping     bool
+	cancel       context.CancelFunc
 }
 
 // TokenGenerationRequest represents the request body for token generation
@@ -148,6 +155,7 @@ func (api *APIServer) setupRoutes(router *mux.Router, controlPort string) {
 
 // Start starts the API server
 func (api *APIServer) Start() error {
+	api.prepare(context.Background())
 	log.Printf("🌐 API server starting on %s", api.server.Addr)
 	log.Printf("📋 Available endpoints:")
 	log.Printf("   GET  / - API information")
@@ -163,11 +171,56 @@ func (api *APIServer) Start() error {
 
 // Stop stops the API server
 func (api *APIServer) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	api.beginStop()
+	return api.stop(ctx)
+}
+
+func (api *APIServer) prepare(parent context.Context) {
+	api.prepareOnce.Do(func() {
+		if parent == nil {
+			parent = context.Background()
+		}
+		ctx, cancel := context.WithCancel(parent)
+		api.handlersMu.Lock()
+		api.cancel = cancel
+		if api.stopping {
+			cancel()
+		}
+		api.handlersMu.Unlock()
+		api.server.BaseContext = func(net.Listener) context.Context { return ctx }
+		handler := api.server.Handler
+		if handler == nil {
+			handler = http.DefaultServeMux
+		}
+		api.server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			api.handlersMu.Lock()
+			if api.stopping {
+				api.handlersMu.Unlock()
+				http.Error(w, "server is stopping", http.StatusServiceUnavailable)
+				return
+			}
+			api.handlers.Add(1)
+			api.handlersMu.Unlock()
+			defer api.handlers.Done()
+			handler.ServeHTTP(w, r)
+		})
+	})
+}
+
+func (api *APIServer) beginStop() {
+	api.handlersMu.Lock()
+	defer api.handlersMu.Unlock()
+	api.stopping = true
+	if api.cancel != nil {
+		api.cancel()
+	}
+}
+
+func (api *APIServer) stop(ctx context.Context) error {
 	if err := api.server.Shutdown(ctx); err != nil {
-		api.server.Close()
-		return err
+		return errors.Join(err, api.server.Close())
 	}
 	return nil
 }

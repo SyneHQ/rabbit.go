@@ -46,6 +46,15 @@ type Server struct {
 	mu               sync.RWMutex
 	stopChan         chan struct{}
 	stopOnce         sync.Once
+	shutdownMu       sync.Mutex
+	shutdownCtx      context.Context
+	shutdownDone     chan struct{}
+	shutdownErr      error
+	shutdownCause    error
+	shutdownFinished bool
+	cleanupCtx       context.Context
+	cleanupCancel    context.CancelFunc
+	closingTunnels   map[*Tunnel]struct{}
 	lifecycleMu      sync.Mutex
 	started, stopped bool
 	connections      map[net.Conn]struct{}
@@ -67,28 +76,30 @@ type Server struct {
 
 // Tunnel represents an active tunnel session
 type Tunnel struct {
-	ID           string
-	Token        string
-	TeamID       string
-	TokenID      string
-	PortAssignID string
-	LocalPort    string
-	RemotePort   string
-	BindAddress  string
-	Client       net.Conn
-	Listener     net.Listener
-	CreatedAt    time.Time
-	stopChan     chan struct{}
-	stopOnce     sync.Once // Ensure stopChan is only closed once
-	endOnce      sync.Once
-	server       *Server
-	ctx          context.Context
-	cancel       context.CancelFunc
-	metadataMu   sync.Mutex
-	streams      map[*tunnelStream]struct{}
-	controlMu    sync.Mutex
-	busyOwner    net.Conn
-	wg           sync.WaitGroup
+	ID             string
+	Token          string
+	TeamID         string
+	TokenID        string
+	PortAssignID   string
+	LocalPort      string
+	RemotePort     string
+	BindAddress    string
+	Client         net.Conn
+	Listener       net.Listener
+	CreatedAt      time.Time
+	stopChan       chan struct{}
+	stopOnce       sync.Once // Ensure stopChan is only closed once
+	endOnce        sync.Once
+	cleanupStarted bool  // Server.mu protects cleanup registration.
+	cleanupErr     error // Published by endOnce.
+	server         *Server
+	ctx            context.Context
+	cancel         context.CancelFunc
+	metadataMu     sync.Mutex
+	streams        map[*tunnelStream]struct{}
+	controlMu      sync.Mutex
+	busyOwner      net.Conn
+	wg             sync.WaitGroup
 
 	// Database tracking
 	SessionID     string
@@ -214,11 +225,17 @@ func (s *Server) Start() (err error) {
 		s.lifecycleMu.Unlock()
 		return fmt.Errorf("server cannot be started more than once or after Stop")
 	}
+	select {
+	case <-s.stopChan:
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("server cannot start during shutdown")
+	default:
+	}
 	s.started = true
 	defer func() {
 		s.lifecycleMu.Unlock()
 		if err != nil {
-			s.Stop()
+			err = errors.Join(err, s.Stop())
 		}
 	}()
 	s.controlListener, err = controlListener(net.JoinHostPort(s.config.BindAddress, s.config.ControlPort))
@@ -236,6 +253,7 @@ func (s *Server) Start() (err error) {
 		if listenErr != nil {
 			return fmt.Errorf("error starting management listener: %w", listenErr)
 		}
+		s.apiServer.prepare(s.ctx)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -253,70 +271,6 @@ func (s *Server) Start() (err error) {
 	s.wg.Add(1)
 	go s.handleControlConnections()
 
-	return nil
-}
-
-// Stop stops the tunnel server
-func (s *Server) Stop() error {
-	s.stopOnce.Do(func() {
-		s.lifecycleMu.Lock()
-		s.stopped = true
-		close(s.stopChan)
-		if s.cancel != nil {
-			s.cancel()
-		}
-		if s.controlListener != nil {
-			s.controlListener.Close()
-		}
-		s.lifecycleMu.Unlock()
-		if s.runtimeRouter != nil {
-			s.runtimeRouter.Close()
-		}
-		// Closing accepted sockets interrupts TLS handshakes and control reads.
-		s.mu.RLock()
-		connections := make([]net.Conn, 0, len(s.connections))
-		for conn := range s.connections {
-			connections = append(connections, conn)
-		}
-		tunnels := make([]*Tunnel, 0, len(s.tunnels))
-		for _, tunnel := range s.tunnels {
-			tunnels = append(tunnels, tunnel)
-		}
-		s.mu.RUnlock()
-		for _, conn := range connections {
-			conn.Close()
-		}
-		// Signal every tunnel before waiting for metadata or stream cleanup.
-		for _, tunnel := range tunnels {
-			s.mu.Lock()
-			s.signalTunnelStopLocked(tunnel)
-			s.mu.Unlock()
-			if tunnel.Listener != nil {
-				tunnel.Listener.Close()
-			}
-		}
-		for _, tunnel := range tunnels {
-			s.stopTunnel(tunnel)
-		}
-		if s.apiServer != nil {
-			if err := s.apiServer.Stop(); err != nil {
-				log.Printf("Error stopping API server: %v", err)
-			}
-		}
-		s.wg.Wait()
-		if s.securityMiddleware != nil {
-			s.securityMiddleware.Stop()
-		}
-		if s.streamAudit != nil {
-			s.streamAudit.close()
-			log.Printf("Stream audit shutdown: %v", s.streamAudit.stats())
-		}
-		if s.closeDatabase != nil {
-			if err := s.closeDatabase(); err != nil {
-				log.Printf("Error closing server metadata pools: %v", err)
-			}
-		}
-	})
 	return nil
 }
 
@@ -943,9 +897,16 @@ func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionL
 
 func getServerFromTunnel(t *Tunnel) *Server { return t.server }
 
-// stopTunnel stops a tunnel
-func (s *Server) stopTunnel(tunnel *Tunnel) {
+// closeTunnelSockets closes admission and sockets before any metadata wait.
+func (s *Server) closeTunnelSockets(tunnel *Tunnel) {
 	s.mu.Lock()
+	if !tunnel.cleanupStarted {
+		tunnel.cleanupStarted = true
+		if s.closingTunnels == nil {
+			s.closingTunnels = make(map[*Tunnel]struct{})
+		}
+		s.closingTunnels[tunnel] = struct{}{}
+	}
 	s.signalTunnelStopLocked(tunnel)
 	client := tunnel.Client
 	tunnel.Client = nil
@@ -961,14 +922,25 @@ func (s *Server) stopTunnel(tunnel *Tunnel) {
 		tunnel.Listener.Close()
 	}
 	if client != nil {
-		client.Close()
+		closeShutdownConnection(client)
 	}
 	for _, stream := range streams {
-		stream.external.Close()
-		stream.data.Close()
+		closeShutdownConnection(stream.external)
+		closeShutdownConnection(stream.data)
 	}
-	tunnel.wg.Wait()
+}
+
+// stopTunnel retains ownership until streams and reconnect metadata have joined.
+func (s *Server) stopTunnel(tunnel *Tunnel) error {
+	s.closeTunnelSockets(tunnel)
 	tunnel.endOnce.Do(func() {
+		defer func() {
+			s.recordShutdownError(tunnel.cleanupErr)
+			s.mu.Lock()
+			delete(s.closingTunnels, tunnel)
+			s.mu.Unlock()
+		}()
+		tunnel.wg.Wait()
 		// A reconnect may already be inside the bounded metadata operation.
 		// Wait for it before deleting the session's Redis key.
 		tunnel.metadataMu.Lock()
@@ -976,14 +948,16 @@ func (s *Server) stopTunnel(tunnel *Tunnel) {
 		if s.dbService == nil || tunnel.SessionID == "" {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+		ctx, cancel := s.cleanupContext()
 		defer cancel()
 		sessionID, _ := uuid.Parse(tunnel.SessionID)
 		logID, _ := uuid.Parse(tunnel.ConnectionLog)
 		if err := s.dbService.EndConnection(ctx, sessionID, logID, "closed", nil); err != nil {
+			tunnel.cleanupErr = fmt.Errorf("tunnel metadata cleanup: %w", err)
 			log.Printf("Failed to end tunnel session: %v", err)
 		}
 	})
+	return tunnel.cleanupErr
 }
 
 // generateTunnelID generates a random tunnel ID
