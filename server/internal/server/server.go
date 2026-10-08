@@ -39,6 +39,7 @@ type Config struct {
 type Server struct {
 	config           Config
 	operator         OperatorConfig
+	streamAudit      *streamAuditQueue
 	controlListener  net.Listener
 	tunnels          map[string]*Tunnel
 	pendingConns     map[string]*pendingConnection
@@ -183,6 +184,10 @@ func NewServer(config Config) (*Server, error) {
 		runtimeRouter:      runtimeRouter,
 	}
 
+	if operator.AuditQueueCapacity > 0 {
+		server.streamAudit = newStreamAuditQueue(operator.AuditQueueCapacity, operator.AuditWriteTimeout, operator.AuditShutdownTimeout, dbService.RecordCompletedStream)
+	}
+
 	// Create API server if port is specified
 	if config.APIPort != "" {
 		server.apiServer = NewAPIServer(dbService, config.APIBindAddress, config.APIPort, config.ControlPort)
@@ -297,6 +302,10 @@ func (s *Server) Stop() error {
 		s.wg.Wait()
 		if s.securityMiddleware != nil {
 			s.securityMiddleware.Stop()
+		}
+		if s.streamAudit != nil {
+			s.streamAudit.close()
+			log.Printf("Stream audit shutdown: %v", s.streamAudit.stats())
 		}
 		if s.closeDatabase != nil {
 			if err := s.closeDatabase(); err != nil {
@@ -809,7 +818,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		// Create a connection log entry for this specific connection
 		connectionLogID := t.createConnectionLog(clientIP, clientPort)
 
-		// Recheck ownership after metadata work, before either relay starts.
+		// Check ownership synchronously before either relay starts.
 		stream, ok := s.beginTunnelStream(t, client, externalConn, dataConn)
 		if !ok {
 			t.finishStreamLog(connectionLogID, 0, 0, "closed", nil)
@@ -836,44 +845,29 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 //   - "error": Connection failed due to an error
 //   - "timeout": Connection timed out
 func (t *Tunnel) logConnectionAttempt(clientIP string, clientPort int, status string, errorMsg string) {
-	connectionLogID := t.createConnectionLog(clientIP, clientPort)
-	if connectionLogID == uuid.Nil || status == "active" {
-		return
-	}
-	server := getServerFromTunnel(t)
-	ctx, cancel := server.metadataContext()
-	defer cancel()
-	if err := server.dbService.EndStream(ctx, connectionLogID, 0, 0, status, &errorMsg); err != nil {
-		log.Printf("Failed to end connection attempt log: %v", err)
+	record := t.createConnectionLog(clientIP, clientPort)
+	if status != "active" {
+		t.finishStreamLog(record, 0, 0, status, &errorMsg)
 	}
 }
 
-// createConnectionLog attaches each stream to the existing tunnel session.
-func (t *Tunnel) createConnectionLog(clientIP string, clientPort int) uuid.UUID {
-	if t.TeamID == "" || t.TokenID == "" || t.PortAssignID == "" || t.SessionID == "" {
-		return uuid.Nil
+// createConnectionLog captures immutable stream metadata without database I/O.
+func (t *Tunnel) createConnectionLog(clientIP string, clientPort int) *database.ConnectionLog {
+	if t.server == nil || t.server.streamAudit == nil || t.TeamID == "" {
+		return nil
 	}
-	server := getServerFromTunnel(t)
-	if server == nil || server.dbService == nil {
-		return uuid.Nil
+	tokenID, tokenErr := uuid.Parse(t.TokenID)
+	portID, portErr := uuid.Parse(t.PortAssignID)
+	sessionID, sessionErr := uuid.Parse(t.SessionID)
+	if tokenErr != nil || portErr != nil || sessionErr != nil {
+		return nil
 	}
-	ctx, cancel := server.metadataContext()
-	defer cancel()
-	tokenID, _ := uuid.Parse(t.TokenID)
-	portAssignID, _ := uuid.Parse(t.PortAssignID)
-	sessionID, _ := uuid.Parse(t.SessionID)
 	serverPort, _ := strconv.Atoi(t.RemotePort)
-	connLog, err := server.dbService.StartStream(ctx, t.TeamID, tokenID, portAssignID, sessionID,
-		clientIP, clientPort, serverPort, "tcp")
-	if err != nil || connLog == nil {
-		log.Printf("Failed to create connection log: %v", err)
-		return uuid.Nil
-	}
-	return connLog.ID
+	return &database.ConnectionLog{ID: uuid.New(), TeamID: t.TeamID, TokenID: tokenID, PortAssignID: portID, SessionID: sessionID, ClientIP: clientIP, ClientPort: clientPort, ServerPort: serverPort, Protocol: "tcp", StartedAt: time.Now()}
 }
 
 // bridgeConnectionsWithLogging bridges two connections bidirectionally with detailed logging
-func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionLogID uuid.UUID) {
+func (t *Tunnel) bridgeConnectionsWithLogging(conn1, conn2 net.Conn, connectionLogID *database.ConnectionLog) {
 	defer conn1.Close()
 	defer conn2.Close()
 	select {

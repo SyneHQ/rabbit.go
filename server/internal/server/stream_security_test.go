@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"net/http"
@@ -22,7 +21,7 @@ func TestRevocationStopsActiveStream(t *testing.T) {
 	other := &Tunnel{ID: "foreign", TeamID: "other", TokenID: "token", stopChan: make(chan struct{})}
 	s := &Server{tunnels: map[string]*Tunnel{"owned": tunnel, "foreign": other}}
 	tunnel.wg.Add(1)
-	go func() { defer tunnel.wg.Done(); tunnel.bridgeConnectionsWithLogging(a, b, uuid.Nil) }()
+	go func() { defer tunnel.wg.Done(); tunnel.bridgeConnectionsWithLogging(a, b, nil) }()
 	go ap.Write([]byte("before"))
 	data := make([]byte, 6)
 	bp.SetReadDeadline(time.Now().Add(time.Second))
@@ -92,7 +91,7 @@ func TestTLSBridgePreservesBidirectionalHalfClose(t *testing.T) {
 	tunnel := &Tunnel{ID: "tls", stopChan: make(chan struct{})}
 	finished := make(chan struct{})
 	go func() {
-		tunnel.bridgeConnectionsWithLogging(sm.WrapConnection(serverTCP), sm.WrapConnection(serverTLS), uuid.Nil)
+		tunnel.bridgeConnectionsWithLogging(sm.WrapConnection(serverTCP), sm.WrapConnection(serverTLS), nil)
 		close(finished)
 	}()
 	remote.SetDeadline(time.Now().Add(2 * time.Second))

@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
-	"log"
 	"net"
 
-	"github.com/google/uuid"
+	"rabbit.go/internal/database"
+	"time"
 )
 
 type pendingConnection struct {
@@ -106,15 +106,23 @@ func (s *Server) withActiveTunnelMetadata(t *Tunnel, owner net.Conn, operation f
 	return operation(ctx)
 }
 
-func (t *Tunnel) finishStreamLog(logID uuid.UUID, received, sent int64, status string, message *string) {
-	if logID == uuid.Nil || t.server == nil || t.server.dbService == nil {
+func (t *Tunnel) finishStreamLog(record *database.ConnectionLog, received, sent int64, status string, message *string) {
+	if record == nil || t.server == nil || t.server.streamAudit == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
-	defer cancel()
-	if err := t.server.dbService.EndStream(ctx, logID, received, sent, status, message); err != nil {
-		log.Printf("Failed to complete stream log: %v", err)
+	completed := *record
+	ended := time.Now()
+	completed.EndedAt = &ended
+	completed.BytesReceived, completed.BytesSent = received, sent
+	completed.Status = status
+	if message != nil {
+		bounded := *message
+		if len(bounded) > 512 {
+			bounded = bounded[:512]
+		}
+		completed.ErrorMessage = &bounded
 	}
+	t.server.streamAudit.submit(completed)
 }
 
 // rejectPending consumes only an unpaired stream owned by the negotiated control socket.
