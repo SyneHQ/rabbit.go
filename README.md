@@ -76,6 +76,7 @@ and verified database TLS settings. The tunnel token is separate from those cred
 | Topic | Guide |
 | --- | --- |
 | Private databases, Kelvo and secure deployment | [Transport guide](docs/private-database-transport.md) |
+| Opt-in shared ingress and issuer integration | [Private CONNECT](docs/private-connect.md) |
 | Metadata setup, teams and identity compatibility | [Identity configuration](docs/standalone-identity.md) |
 | Admission limits, timeouts and operator statistics | [Operator configuration](docs/operator-limits.md) |
 | Client flags, trust and reconnect behavior | [Client usage](client/TUNNEL_CLIENT_USAGE.md) |
