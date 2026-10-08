@@ -7,7 +7,6 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -97,17 +96,7 @@ func SignOpen(c OpenClaims, key ed25519.PrivateKey) (string, error) {
 	if len(key) != ed25519.PrivateKeySize || validateClaims(c, time.Unix(c.IssuedAt, 0)) != nil {
 		return "", ErrAuthority
 	}
-	header, _ := json.Marshal(joseHeader{"EdDSA", "rabbit-connect+jwt", c.Issuer})
-	payload, err := json.Marshal(c)
-	if err != nil {
-		return "", ErrAuthority
-	}
-	unsigned := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
-	token := unsigned + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte(unsigned)))
-	if len(token) > MaxTokenBytes {
-		return "", ErrAuthority
-	}
-	return token, nil
+	return signClaims(c, c.Issuer, "rabbit-connect+jwt", key)
 }
 
 // VerifyOpen checks the signed scope and the completed, verified mTLS handshake.
@@ -117,21 +106,8 @@ func VerifyOpen(token, authority string, trust Trust, state tls.ConnectionState,
 	if len(token) == 0 || len(token) > MaxTokenBytes || len(trust.PublicKey) != ed25519.PublicKeySize || !ValidAuthority(authority) {
 		return deny()
 	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return deny()
-	}
-	decode := base64.RawURLEncoding.Strict().DecodeString
-	headerBytes, e1 := decode(parts[0])
-	payload, e2 := decode(parts[1])
-	signature, e3 := decode(parts[2])
-	if e1 != nil || e2 != nil || e3 != nil || len(signature) != ed25519.SignatureSize || !ed25519.Verify(trust.PublicKey, []byte(parts[0]+"."+parts[1]), signature) {
-		return deny()
-	}
-	var header joseHeader
 	var claims OpenClaims
-	if decodeStrict(headerBytes, &header) != nil || decodeStrict(payload, &claims) != nil ||
-		header.Algorithm != "EdDSA" || header.Type != "rabbit-connect+jwt" || header.KeyID != trust.Issuer ||
+	if verifySignedClaims(token, "rabbit-connect+jwt", trust, &claims) != nil ||
 		validateClaims(claims, now) != nil || claims.Issuer != trust.Issuer || claims.Audience != trust.Audience ||
 		claims.ClusterTenant != trust.ClusterTenant || claims.ServicePrincipal != trust.ServicePrincipal ||
 		claims.WorkerIdentity != trust.WorkerIdentity || claims.Authority != authority {
