@@ -119,6 +119,8 @@ jobs:
               "TestRealMetadataMembership", "TestAtomicScopedRevocationRetainsHistory",
               "TestStreamAccountingPreservesTunnelSession",
               "TestTransportAuthorityIsReadOnlyAndTracksRevocation",
+              "TestNativePrivateConnectPostgres", "TestNativePrivateConnectRedis",
+              "TestNativePrivateConnectHalfClose",
           }
           for path in sys.argv[1:]:
               with open(path, encoding="utf-8") as source:

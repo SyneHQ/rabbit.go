@@ -245,6 +245,10 @@ func newTransportHarness(tb testing.TB) *transportHarness {
 }
 
 func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarness {
+	return newTransportHarnessConfigured(tb, sourceAddress, nil)
+}
+
+func newTransportHarnessConfigured(tb testing.TB, sourceAddress string, beforeStart func(*Server)) *transportHarness {
 	tb.Helper()
 	binaryPath := os.Getenv("RABBIT_DATABASE_CLIENT_TEST_BINARY")
 	adminURL := os.Getenv("RABBIT_TRANSPORT_DATABASE_URL")
@@ -371,6 +375,9 @@ func newTransportHarnessAt(tb testing.TB, sourceAddress string) *transportHarnes
 	srv, err := NewServer(Config{BindAddress: "127.0.0.1", ControlPort: "0"})
 	if err != nil {
 		tb.Fatalf("transport fixture server failed: %v", err)
+	}
+	if beforeStart != nil {
+		beforeStart(srv)
 	}
 	tb.Cleanup(func() {
 		done := make(chan error, 1)
