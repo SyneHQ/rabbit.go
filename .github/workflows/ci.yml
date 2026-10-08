@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SyneHQ/kelvo-go
-          ref: 05ef087aaa66f47713e4ee30644807c10f900a71
+          ref: bdb1d209c92f952a6621e4ec224349645aa0684e
           path: native-kelvo
           persist-credentials: false
 
@@ -85,7 +85,7 @@ jobs:
           trap cleanup EXIT
           # Keep the log outside ROOT while the controller verifies ROOT is empty.
           controller_log="$(mktemp /tmp/rabbit-fixture-controller.XXXXXX)"
-          python3 scripts/transport_fixtures.py serve "$fixture_root" --max-seconds 2700 >"$controller_log" 2>&1 &
+          python3 scripts/transport_fixtures.py serve "$fixture_root" --mysql --max-seconds 2700 >"$controller_log" 2>&1 &
           fixture_pid=$!
           for attempt in $(seq 1 360); do
             if [[ -f "$fixture_root/fixtures.json" ]]; then
@@ -104,7 +104,8 @@ jobs:
           import json, sys
           with open(sys.argv[1], encoding="utf-8") as source:
               environment = json.load(source)
-          for name in ("SECURITY_TEST_DATABASE_URL", "RABBIT_TRANSPORT_DATABASE_URL", "RABBIT_TRANSPORT_REDIS_URL"):
+          for name in ("SECURITY_TEST_DATABASE_URL", "RABBIT_TRANSPORT_DATABASE_URL", "RABBIT_TRANSPORT_REDIS_URL",
+                       "RABBIT_TRANSPORT_MYSQL_SOCKET", "RABBIT_TRANSPORT_MYSQL_CA", "RABBIT_TRANSPORT_MYSQL_PASSWORD"):
               print(name + "=" + environment[name])
           PY
           )
@@ -139,6 +140,7 @@ jobs:
               "TestNativePrivateConnectPostgres", "TestNativePrivateConnectRedis",
               "TestNativePrivateConnectHalfClose",
               "TestKelvoPrivateNativePostgres",
+              "TestKelvoPrivateNativeMySQL",
           }
           for path in sys.argv[1:]:
               with open(path, encoding="utf-8") as source:

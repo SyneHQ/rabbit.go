@@ -117,10 +117,14 @@ type kelvoNativeResult struct {
 }
 
 func runKelvoNativeHelper(t *testing.T, helper string, input []byte) kelvoNativeResult {
+	return runKelvoNativeHelperNamed(t, helper, input, "TestRabbitNativePostgresHelper")
+}
+
+func runKelvoNativeHelperNamed(t *testing.T, helper string, input []byte, name string) kelvoNativeResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, helper, "-test.run=^TestRabbitNativePostgresHelper$", "-test.count=1", "-test.timeout=45s")
+	command := exec.CommandContext(ctx, helper, "-test.run=^"+name+"$", "-test.count=1", "-test.timeout=45s")
 	command.Env = []string{"KELVO_RABBIT_NATIVE_HELPER=1", "GOMAXPROCS=1", "TZ=UTC"}
 	command.Stdin = bytes.NewReader(input)
 	output := &nativeHelperOutput{}
