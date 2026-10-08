@@ -258,25 +258,3 @@ func (d *Database) DeleteActiveSessionContext(ctx context.Context, sessionID uui
 func (d *Database) IncrementCounter(key string) (int64, error) {
 	return d.Redis.Incr(d.ctx, key).Result()
 }
-
-// SetPortLock sets a port lock in Redis to prevent concurrent port assignments
-func (d *Database) SetPortLock(port int, tokenID uuid.UUID, expiration time.Duration) error {
-	key := fmt.Sprintf("port_lock:%d", port)
-	return d.Redis.SetNX(d.ctx, key, tokenID.String(), expiration).Err()
-}
-
-// ReleasePortLock releases a port lock in Redis
-func (d *Database) ReleasePortLock(port int) error {
-	key := fmt.Sprintf("port_lock:%d", port)
-	return d.DeleteCache(key)
-}
-
-// IsPortLocked checks if a port is locked in Redis
-func (d *Database) IsPortLocked(port int) (bool, error) {
-	key := fmt.Sprintf("port_lock:%d", port)
-	result, err := d.Redis.Exists(d.ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
-	return result > 0, nil
-}
