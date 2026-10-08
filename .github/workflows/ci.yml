@@ -118,6 +118,7 @@ jobs:
               "TestRuntimeClientTLSIntegration", "TestNativeDatabaseTransport",
               "TestRealMetadataMembership", "TestAtomicScopedRevocationRetainsHistory",
               "TestStreamAccountingPreservesTunnelSession",
+              "TestTransportAuthorityIsReadOnlyAndTracksRevocation",
           }
           for path in sys.argv[1:]:
               with open(path, encoding="utf-8") as source:
