@@ -46,7 +46,11 @@ func writeControlFrameTimeout(conn net.Conn, timeout time.Duration, format strin
 func (t *Tunnel) writeControl(conn net.Conn, format string, args ...any) error {
 	t.controlMu.Lock()
 	defer t.controlMu.Unlock()
-	return writeControlFrame(conn, format, args...)
+	timeout := controlWriteTimeout
+	if t.server != nil {
+		timeout = t.server.controlTimeout()
+	}
+	return writeControlFrameTimeout(conn, timeout, format, args...)
 }
 
 func normalizeBindAddresses(config Config) (Config, error) {

@@ -90,3 +90,23 @@ func LoadOperatorConfig(path string) (OperatorConfig, error) {
 	}
 	return config, nil
 }
+
+func (s *Server) pairingTimeout() time.Duration {
+	if s.operator.PairingTimeout > 0 {
+		return s.operator.PairingTimeout
+	}
+	return 10 * time.Second
+}
+func (s *Server) controlTimeout() time.Duration {
+	if s.operator.ControlWriteTimeout > 0 {
+		return s.operator.ControlWriteTimeout
+	}
+	return controlWriteTimeout
+}
+
+func (s *Server) handshakeTimeout() time.Duration {
+	if s.operator.Security.HandshakeTimeout > 0 {
+		return s.operator.Security.HandshakeTimeout
+	}
+	return 10 * time.Second
+}

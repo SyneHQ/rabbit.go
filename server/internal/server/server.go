@@ -26,6 +26,7 @@ import (
 
 // Config holds server configuration
 type Config struct {
+	ConfigFile        string
 	BindAddress       string
 	TunnelBindAddress string // Database ingress; independent of the public control listener.
 	APIBindAddress    string // Management ingress; independent of the public control listener.
@@ -37,6 +38,7 @@ type Config struct {
 // Server represents the tunnel server
 type Server struct {
 	config           Config
+	operator         OperatorConfig
 	controlListener  net.Listener
 	tunnels          map[string]*Tunnel
 	pendingConns     map[string]*pendingConnection
@@ -84,6 +86,7 @@ type Tunnel struct {
 	metadataMu   sync.Mutex
 	streams      map[*tunnelStream]struct{}
 	controlMu    sync.Mutex
+	busyOwner    net.Conn
 	wg           sync.WaitGroup
 
 	// Database tracking
@@ -112,7 +115,7 @@ func NewServer(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	securityConfig, err := middleware.SecurityConfigFromEnv()
+	operator, err := LoadOperatorConfig(config.ConfigFile)
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +165,12 @@ func NewServer(config Config) (*Server, error) {
 	log.Printf("✅ Database connection established")
 
 	// Initialize security middleware
-	securityMiddleware := middleware.NewSecurityMiddleware(securityConfig)
+	securityMiddleware := middleware.NewSecurityMiddleware(operator.Security)
 
 	serverCtx, serverCancel := context.WithCancel(context.Background())
 	server := &Server{
 		config:             config,
+		operator:           operator,
 		tunnels:            make(map[string]*Tunnel),
 		pendingConns:       make(map[string]*pendingConnection),
 		connections:        make(map[net.Conn]struct{}),
@@ -356,7 +360,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	}()
 
 	log.Printf("New control connection from %s", conn.RemoteAddr())
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(s.handshakeTimeout()))
 
 	// Simple protocol: read token and local port on separate lines
 	reader := bufio.NewReader(conn)
@@ -561,15 +565,27 @@ func (s *Server) monitorControlConnection(tunnel *Tunnel, conn net.Conn, reader 
 		if !current {
 			return
 		}
-		switch strings.TrimSpace(line) {
-		case "DISCONNECT":
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "CAPS:busy-v1":
+			if err := tunnel.writeControl(conn, "CAPS:busy-v1\n"); err != nil {
+				return
+			}
+			s.mu.Lock()
+			if s.controlOwnerActiveLocked(tunnel, conn) {
+				tunnel.busyOwner = conn
+			}
+			s.mu.Unlock()
+		case strings.HasPrefix(line, "BUSY:"):
+			s.rejectPending(tunnel, conn, strings.TrimPrefix(line, "BUSY:"))
+		case line == "DISCONNECT":
 			s.stopControlOwner(tunnel, conn)
 			return
-		case "PING":
+		case line == "PING":
 			if err := tunnel.writeControl(conn, "PONG\n"); err != nil {
 				return
 			}
-		case "KEEPALIVE":
+		case line == "KEEPALIVE":
 		}
 	}
 }
@@ -742,6 +758,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		return
 	}
 	connChan := make(chan net.Conn, 1)
+	rejected := make(chan struct{})
 	connID, err := generateTunnelID()
 	if err != nil {
 		return
@@ -751,7 +768,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		s.mu.Unlock()
 		return
 	}
-	s.pendingConns[connID] = &pendingConnection{tunnel: t, owner: client, ready: connChan}
+	s.pendingConns[connID] = &pendingConnection{tunnel: t, owner: client, ready: connChan, rejected: rejected}
 	s.mu.Unlock()
 	defer func() {
 		var unused net.Conn
@@ -771,8 +788,11 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		return
 	}
 
-	// Wait for data connection with timeout
+	// Wait for data connection with timeout.
 	select {
+	case <-rejected:
+		externalConn.Close()
+		return
 	case dataConn := <-connChan:
 		defer dataConn.Close()
 		// Clean up the pending connection
@@ -800,7 +820,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 
 	case <-t.stopChan:
 		return
-	case <-time.After(10 * time.Second):
+	case <-time.After(s.pairingTimeout()):
 		log.Printf("Timeout waiting for data connection")
 		s.mu.Lock()
 		delete(s.pendingConns, connID)

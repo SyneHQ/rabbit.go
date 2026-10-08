@@ -17,6 +17,7 @@ var (
 	apiBindAddress    string
 	controlPort       string
 	logLevel          string
+	configFile        string
 	apiPort           string
 )
 
@@ -46,6 +47,7 @@ Examples:
 	serverCmd.Flags().StringVar(&controlPort, "port", "9999", "Control port for tunnel connections")
 	serverCmd.Flags().StringVar(&apiBindAddress, "api-bind", "127.0.0.1", "Management API IP; use a private network or TLS reverse proxy")
 	serverCmd.Flags().StringVar(&apiPort, "api-port", "8080", "HTTP API port for management endpoints")
+	serverCmd.Flags().StringVar(&configFile, "config", "", "YAML file for admission and transport limits")
 	serverCmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 
 	rootCmd.AddCommand(serverCmd)
@@ -54,6 +56,7 @@ Examples:
 func runServer(cmd *cobra.Command, args []string) error {
 	// Create server configuration
 	config := server.Config{
+		ConfigFile:        configFile,
 		BindAddress:       bindAddress,
 		TunnelBindAddress: tunnelBindAddress,
 		APIBindAddress:    apiBindAddress,
