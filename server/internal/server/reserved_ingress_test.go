@@ -183,9 +183,33 @@ func TestReservedReplacementClosesQueuedSocketWithoutStealingPairOwner(t *testin
 	}
 }
 
+type reservedCloseReceipt struct {
+	net.Conn
+	allow <-chan struct{}
+}
+
+func (c *reservedCloseReceipt) Close() error {
+	err := c.Conn.Close()
+	<-c.allow
+	return err
+}
+
 func TestReservedAnonymousExpiryClosesWithoutAcknowledgingHandler(t *testing.T) {
 	s := reservedTestServerWithTimeout(t, 100*time.Millisecond)
-	conn, peer := reservedTestIngress(t, s, false)
+	raw, peer, err := privateSourcePair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := make(chan struct{})
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(allow) }) }
+	conn, err := s.acceptIngress(&reservedCloseReceipt{Conn: raw, allow: allow}, false)
+	if err != nil {
+		raw.Close()
+		peer.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { unblock(); closeShutdownConnection(conn); s.finishIngress(conn); peer.Close() })
 	s.wg.Add(1)
 	go s.maintainReservedIngress()
 	peer.SetReadDeadline(time.Now().Add(time.Second))
@@ -197,8 +221,15 @@ func TestReservedAnonymousExpiryClosesWithoutAcknowledgingHandler(t *testing.T) 
 		t.Fatal("expiry acknowledged unfinished handler work")
 	}
 	s.finishIngress(conn)
+	if s.reserved.ledger.Snapshot(time.Now()).LiveSockets != 1 {
+		t.Fatal("peer EOF and handler join bypassed pending Close completion")
+	}
+	// A peer observes EOF before the local Close call necessarily returns. Join
+	// that exact Close owner before expecting its physical completion receipt.
+	unblock()
+	closeShutdownConnection(conn)
 	if s.reserved.ledger.Snapshot(time.Now()).LiveSockets != 0 {
-		t.Fatal("expired handler acknowledgement retained capacity")
+		t.Fatal("confirmed Close and handler join retained capacity")
 	}
 }
 
