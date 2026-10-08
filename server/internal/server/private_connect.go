@@ -102,6 +102,10 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 		return
 	}
 	reader := bufio.NewReaderSize(conn, privateHeaderLimit)
+	if prefix, err := reader.Peek(5); err == nil && string(prefix) == "POST " {
+		s.handlePrivateRoute(handshake, conn, reader, state)
+		return
+	}
 	authority, token, err := readPrivateConnect(reader)
 	if err != nil {
 		privateFailure(conn, "400 Bad Request")

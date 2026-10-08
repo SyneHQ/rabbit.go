@@ -28,6 +28,7 @@ Add to the operator YAML passed with `--config`:
 ```yaml
 private_connect:
   listen: 10.0.0.4:14443
+  issuer_identity: spiffe://example.com/authority/issuer
   certificate_file: /etc/rabbit/private.crt
   private_key_file: /etc/rabbit/private.key
   client_ca_file: /etc/rabbit/workers-ca.crt
@@ -77,6 +78,20 @@ management authorization. It checks the service credential and live team
 membership. The response contains tenant, token ID, random token epoch, tunnel
 ID and current control-owner generation. It contains no database credentials or
 customer registration token.
+
+For service-to-service discovery, set `issuer_identity` and send
+`POST /v1/private-transport/route` on the private mTLS port. The client certificate
+must have that exact URI and must not also identify a configured worker. Omitting
+`issuer_identity` disables this endpoint; existing management authorization stays unchanged.
+
+```json
+{"version":1,"tenant":"team-id","token_id":"canonical-uuid"}
+```
+
+Use `Content-Type: application/json`, an explicit `Content-Length` (maximum 1024),
+and `Host: hostname:port`. Unknown or duplicate fields and user/service-token
+headers are rejected. Success is `{"version":1,"route":{...}}` with `no-store`.
+The snapshot requires a live token and current control owner; it grants no data access.
 
 The issuer must verify that the authorized source ID and revision map to this
 exact tenant/token. Rabbit does not own the application's source catalog.

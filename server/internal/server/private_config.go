@@ -19,6 +19,7 @@ import (
 // PrivateConnectConfig is installation-owned. Only files reference private keys.
 // Worker identity entries do not authorize any source without the live issuer.
 type PrivateConnectConfig struct {
+	IssuerIdentity       string         `yaml:"issuer_identity"`
 	Listen               string         `yaml:"listen"`
 	PrivateInterface     string         `yaml:"private_interface"`
 	CertificateFile      string         `yaml:"certificate_file"`
@@ -43,14 +44,15 @@ type PrivateTrust struct {
 }
 
 type privateConnect struct {
-	address     string
-	tls         *tls.Config
-	trust       []transport.Trust
-	replays     *transport.ReplayRegistry
-	authority   transport.LeaseAuthority
-	tokenActive func(context.Context, *Tunnel) (time.Time, error)
-	close       func()
-	failed      atomic.Bool
+	issuerIdentity string
+	address        string
+	tls            *tls.Config
+	trust          []transport.Trust
+	replays        *transport.ReplayRegistry
+	authority      transport.LeaseAuthority
+	tokenActive    func(context.Context, *Tunnel) (time.Time, error)
+	close          func()
+	failed         atomic.Bool
 }
 
 func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
@@ -60,6 +62,9 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 	fail := func() (*privateConnect, error) { return nil, fmt.Errorf("invalid private CONNECT configuration") }
 	address, err := privateBindAddress(config.Listen, config.PrivateInterface)
 	if err != nil || len(config.Trust) < 1 || len(config.Trust) > 64 {
+		return fail()
+	}
+	if config.IssuerIdentity != "" && !validPrivateIssuer(config.IssuerIdentity, config.Trust) {
 		return fail()
 	}
 	if config.PrivateKeyGroup != nil && !operatorGroupMember(*config.PrivateKeyGroup) {
@@ -89,7 +94,7 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 	if err != nil {
 		return fail()
 	}
-	result := &privateConnect{address: address, replays: replays,
+	result := &privateConnect{address: address, replays: replays, issuerIdentity: config.IssuerIdentity,
 		tls: &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert,
 			ClientCAs: clientCA, Certificates: []tls.Certificate{certificate}, NextProtos: []string{"http/1.1"}},
 	}
