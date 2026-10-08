@@ -219,6 +219,10 @@ func fixtureFileHash(t *testing.T, path string) string {
 // implements PostgreSQL SSLRequest so both tested paths use identical verified
 // source TLS even when the disposable PG fixture has no TLS configuration.
 func newKelvoPostgresRelay(t *testing.T, adminURL string) (string, []byte) {
+	return newKelvoPostgresRelayObserved(t, adminURL, nil)
+}
+
+func newKelvoPostgresRelayObserved(t *testing.T, adminURL string, accepted func()) (string, []byte) {
 	t.Helper()
 	parsed, err := url.Parse(adminURL)
 	if err != nil {
@@ -275,6 +279,9 @@ func newKelvoPostgresRelay(t *testing.T, adminURL string) (string, []byte) {
 			}
 			if !track(raw) {
 				return
+			}
+			if accepted != nil {
+				accepted()
 			}
 			select {
 			case slots <- struct{}{}:
