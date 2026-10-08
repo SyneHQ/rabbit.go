@@ -202,6 +202,7 @@ func (s *Server) shutdown(ctx context.Context) {
 		s.apiServer.handlers.Wait()
 	}
 	s.wg.Wait()
+	s.joinReservedIngress()
 	if s.private != nil && s.private.close != nil {
 		s.private.close()
 	}

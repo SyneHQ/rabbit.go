@@ -105,6 +105,10 @@ func privateSourcePair() (net.Conn, net.Conn, error) {
 }
 
 func newPrivateFixture(t *testing.T, source func(net.Conn)) *privateFixture {
+	return newPrivateFixtureMode(t, source, false)
+}
+
+func newPrivateFixtureMode(t *testing.T, source func(net.Conn), reserved bool) *privateFixture {
 	t.Helper()
 	serverTLS, clientTLS, identity, certDigest := privateTestTLS(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
@@ -125,6 +129,12 @@ func newPrivateFixture(t *testing.T, source func(net.Conn)) *privateFixture {
 	s.operator.PairingTimeout = 500 * time.Millisecond
 	s.private = &privateConnect{tls: serverTLS, replays: registry,
 		trust: []transport.Trust{{Issuer: "issuer", Audience: "private-connect", ClusterTenant: "shared", ServicePrincipal: "gateway", WorkerIdentity: identity, PublicKey: public}}}
+	if reserved {
+		if err := s.enableReservedIngress(transport.ReservationLimits{Sockets: 16, Handshakes: 2, Parents: 2,
+			SetupTimeout: 2 * time.Second, TerminationWindow: time.Second}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -179,11 +189,24 @@ func newPrivateFixture(t *testing.T, source func(net.Conn)) *privateFixture {
 			}
 			streams.Add(1)
 			go func() { defer streams.Done(); defer peer.Close(); source(peer) }()
+			if reserved {
+				admitted, err := s.acceptIngress(data, false)
+				if err != nil {
+					data.Close()
+					return
+				}
+				data = admitted
+			}
 			s.handleDataConnection(data, "DATA:"+strings.TrimSpace(strings.TrimPrefix(id, "CONN_ID:")))
+			s.finishIngress(data)
 		}
 	}()
 	s.wg.Add(1)
 	go s.handlePrivateConnections()
+	if reserved {
+		s.wg.Add(1)
+		go s.maintainReservedIngress()
+	}
 	t.Cleanup(func() {
 		if err := s.Stop(); err != nil {
 			t.Error(err)

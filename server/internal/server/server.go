@@ -43,6 +43,7 @@ type Server struct {
 	controlListener  net.Listener
 	privateListener  net.Listener
 	private          *privateConnect
+	reserved         *reservedIngress
 	tunnels          map[string]*Tunnel
 	pendingConns     map[string]*pendingConnection
 	mu               sync.RWMutex
@@ -249,6 +250,10 @@ func (s *Server) Start() (err error) {
 		s.lifecycleMu.Unlock()
 		return fmt.Errorf("server cannot be started more than once or after Stop")
 	}
+	if s.reserved != nil && s.runtimeRouter != nil {
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("reserved database ingress cannot share an unqualified notebook router")
+	}
 	select {
 	case <-s.stopChan:
 		s.lifecycleMu.Unlock()
@@ -304,6 +309,10 @@ func (s *Server) Start() (err error) {
 		s.wg.Add(1)
 		go s.handlePrivateConnections()
 	}
+	if s.reserved != nil {
+		s.wg.Add(1)
+		go s.maintainReservedIngress()
+	}
 
 	return nil
 }
@@ -325,21 +334,19 @@ func (s *Server) handleControlConnections() {
 				continue
 			}
 
-			// Apply security validation
-			if err := s.securityMiddleware.ValidateConnection(conn); err != nil {
+			secureConn, err := s.acceptIngress(conn, false)
+			if err != nil {
 				log.Printf("🚫 Connection rejected from %s: %v", conn.RemoteAddr(), err)
 				conn.Close()
 				continue
 			}
-
-			// Wrap connection with security features
-			secureConn := s.securityMiddleware.WrapConnection(conn)
 
 			s.mu.Lock()
 			select {
 			case <-s.stopChan:
 				s.mu.Unlock()
 				secureConn.Close()
+				s.finishIngress(secureConn)
 				return
 			default:
 			}
@@ -354,6 +361,7 @@ func (s *Server) handleControlConnections() {
 // handleControlConnection handles a single control connection
 func (s *Server) handleControlConnection(conn net.Conn) {
 	defer s.wg.Done()
+	defer s.finishIngress(conn)
 	defer func() {
 		s.mu.Lock()
 		delete(s.connections, conn)
@@ -375,7 +383,7 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	}
 	firstLine = strings.TrimSpace(firstLine)
 	if firstLine == notebookruntime.RegisterFrame || firstLine == notebookruntime.OpenFrame || firstLine == notebookruntime.DataFrame {
-		if s.runtimeRouter == nil {
+		if s.runtimeRouter == nil || s.reserved != nil {
 			conn.Close()
 			return
 		}
@@ -386,6 +394,10 @@ func (s *Server) handleControlConnection(conn net.Conn) {
 	// Handle data connections
 	if strings.HasPrefix(firstLine, "DATA:") {
 		s.handleDataConnection(&bufferedConnection{Conn: conn, reader: reader}, firstLine)
+		return
+	}
+	if err := s.ordinaryIngress(conn); err != nil {
+		closeShutdownConnection(conn)
 		return
 	}
 
@@ -610,12 +622,21 @@ func (s *Server) handleDataConnection(conn net.Conn, dataLine string) {
 		conn.Close()
 		return
 	}
+	owned, err := s.retainDATAIngress(conn, pending.reservation)
+	if err != nil {
+		s.mu.Unlock()
+		conn.Close()
+		return
+	}
+	if paired, ok := owned.(*pairedIngress); ok {
+		pending.handlerDone = paired.setupDone
+	}
 	select {
-	case pending.ready <- conn:
+	case pending.ready <- owned:
 		s.mu.Unlock()
 	default:
 		s.mu.Unlock()
-		conn.Close()
+		finishPairedIngress(owned)
 	}
 }
 
@@ -725,13 +746,13 @@ func (t *Tunnel) acceptConnections() {
 			// Apply security validation for external connections
 			server := getServerFromTunnel(t)
 			if server != nil && server.securityMiddleware != nil {
-				if err := server.securityMiddleware.ValidateConnection(conn); err != nil {
+				admitted, err := server.acceptIngress(conn, true)
+				if err != nil {
 					log.Printf("🚫 External connection rejected for tunnel %s from %s: %v", t.ID, conn.RemoteAddr(), err)
 					conn.Close()
 					continue
 				}
-				// Wrap with security features
-				conn = server.securityMiddleware.WrapConnection(conn)
+				conn = admitted
 			}
 
 			t.wg.Add(1)
@@ -743,6 +764,11 @@ func (t *Tunnel) acceptConnections() {
 // handleConnection handles a single tunnel connection
 func (t *Tunnel) handleConnection(externalConn net.Conn) {
 	defer t.wg.Done()
+	defer func() {
+		if t.server != nil {
+			t.server.finishIngress(externalConn)
+		}
+	}()
 	defer externalConn.Close()
 
 	// Extract client connection details
@@ -773,7 +799,7 @@ func (t *Tunnel) handleConnection(externalConn net.Conn) {
 		}
 		return
 	}
-	defer dataConn.Close()
+	defer finishPairedIngress(dataConn)
 	connectionLogID := t.createConnectionLog(clientIP, clientPort)
 	stream, ok := s.beginTunnelStream(t, client, externalConn, dataConn)
 	if !ok {
@@ -1100,13 +1126,13 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 
 			// Apply security validation for external connections to restored ports
 			if s != nil && s.securityMiddleware != nil {
-				if err := s.securityMiddleware.ValidateConnection(conn); err != nil {
+				admitted, err := s.acceptIngress(conn, true)
+				if err != nil {
 					log.Printf("🚫 External connection rejected for restored port %s from %s: %v", t.RemotePort, conn.RemoteAddr(), err)
 					conn.Close()
 					continue
 				}
-				// Wrap with security features
-				conn = s.securityMiddleware.WrapConnection(conn)
+				conn = admitted
 			}
 
 			// For restored tunnels without clients, check if client is now connected
@@ -1136,6 +1162,7 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 					select {
 					case <-t.stopChan:
 						c.Close()
+						s.finishIngress(c)
 						t.wg.Done()
 						return
 					case <-time.After(checkInterval):
@@ -1146,6 +1173,7 @@ func (t *Tunnel) acceptRestoredConnections(s *Server) {
 				// Client still not available, close connection gracefully
 				// We need to call Done() and Close() here since handleConnection was not called
 				defer t.wg.Done()
+				defer s.finishIngress(c)
 				defer c.Close()
 
 				log.Printf("⏰ Client not available for restored port %s, closing connection from %s:%d",
