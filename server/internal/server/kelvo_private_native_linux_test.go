@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -146,11 +147,22 @@ func runKelvoNativeHelper(t *testing.T, helper string, input []byte) kelvoNative
 	return result
 }
 
-type nativeHelperOutput struct{ bytes.Buffer }
+type nativeHelperOutput struct{ buffer bytes.Buffer }
+
+func (b *nativeHelperOutput) String() string { return b.buffer.String() }
 
 func (b *nativeHelperOutput) Write(data []byte) (int, error) {
-	if b.Len()+len(data) > 32<<10 {
+	if b.buffer.Len()+len(data) > 32<<10 {
 		return 0, errors.New("native helper output limit exceeded")
 	}
-	return b.Buffer.Write(data)
+	return b.buffer.Write(data)
+}
+
+func TestNativeHelperOutputCannotBypassLimit(t *testing.T) {
+	output := &nativeHelperOutput{}
+	// Hide Reader.WriteTo to exercise io.Copy's destination interface path.
+	source := struct{ io.Reader }{strings.NewReader(strings.Repeat("x", 40<<10))}
+	if _, err := io.Copy(output, source); err == nil || len(output.String()) > 32<<10 {
+		t.Fatal("native helper output bypassed its hard byte limit")
+	}
 }
