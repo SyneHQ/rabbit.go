@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,25 +14,25 @@ import (
 // SecurityConfig holds configuration for security middleware
 type SecurityConfig struct {
 	// Rate limiting
-	MaxConnectionsPerIP   int           // Maximum concurrent connections per IP
-	MaxConnectionsPerHour int           // Maximum new connections per IP per hour
-	ConnectionWindow      time.Duration // Time window for rate limiting
+	MaxConnectionsPerIP   int           `yaml:"max_connections_per_ip"`   // Maximum concurrent connections per IP
+	MaxConnectionsPerHour int           `yaml:"max_connections_per_hour"` // Maximum new connections per IP per hour
+	ConnectionWindow      time.Duration `yaml:"connection_window"`        // Time window for rate limiting
 
 	// DDoS protection
-	MaxGlobalConnections int           // Maximum global concurrent connections
-	BurstThreshold       int           // Threshold for burst detection
-	BurstWindow          time.Duration // Window for burst detection
+	MaxGlobalConnections int           `yaml:"max_connections"` // Maximum global concurrent connections
+	BurstThreshold       int           `yaml:"burst_threshold"` // Threshold for burst detection
+	BurstWindow          time.Duration `yaml:"burst_window"`    // Window for burst detection
 
 	// Timeouts
-	HandshakeTimeout time.Duration // Timeout for initial handshake
-	IdleTimeout      time.Duration // Timeout for idle connections
+	HandshakeTimeout time.Duration `yaml:"handshake_timeout"` // Timeout for initial handshake
+	IdleTimeout      time.Duration `yaml:"idle_timeout"`      // Timeout for idle connections
 
 	// Blacklist
-	BlacklistDuration    time.Duration // How long to blacklist IPs
-	MaxViolationsPerHour int           // Max violations before blacklisting
+	BlacklistDuration    time.Duration `yaml:"blacklist_duration"`      // How long to blacklist IPs
+	MaxViolationsPerHour int           `yaml:"max_violations_per_hour"` // Max violations before blacklisting
 
 	// Whitelist
-	TrustedNetworks []string // List of trusted IP networks/ranges (CIDR notation)
+	TrustedNetworks []string `yaml:"trusted_networks"` // List of trusted IP networks/ranges (CIDR notation)
 }
 
 // DefaultSecurityConfig returns a default security configuration
@@ -45,7 +44,7 @@ func DefaultSecurityConfig() SecurityConfig {
 		MaxGlobalConnections:  4096,
 		BurstThreshold:        10000,
 		BurstWindow:           time.Minute,
-		HandshakeTimeout:      60 * time.Second,
+		HandshakeTimeout:      10 * time.Second,
 		IdleTimeout:           30 * time.Minute,
 		BlacklistDuration:     time.Hour,
 		MaxViolationsPerHour:  100,
@@ -56,17 +55,7 @@ func DefaultSecurityConfig() SecurityConfig {
 // SecurityConfigFromEnv applies the operator's process-wide admission ceiling.
 // The default is a safety ceiling, not a promise that a host can sustain it.
 func SecurityConfigFromEnv() (SecurityConfig, error) {
-	config := DefaultSecurityConfig()
-	value, exists := os.LookupEnv("RABBIT_MAX_CONNECTIONS")
-	if !exists {
-		return config, nil
-	}
-	limit, err := strconv.Atoi(value)
-	if err != nil || limit < 1 || limit > 1_000_000 || strconv.Itoa(limit) != value {
-		return SecurityConfig{}, fmt.Errorf("RABBIT_MAX_CONNECTIONS must be an integer between 1 and 1000000")
-	}
-	config.MaxGlobalConnections = limit
-	return config, nil
+	return ApplySecurityEnv(DefaultSecurityConfig())
 }
 
 // IPStats tracks statistics for an IP address
