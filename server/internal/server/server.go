@@ -116,6 +116,9 @@ func NewServer(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateOperatorToken(); err != nil {
+		return nil, err
+	}
 	operator, err := LoadOperatorConfig(config.ConfigFile)
 	if err != nil {
 		return nil, err
@@ -192,6 +195,7 @@ func NewServer(config Config) (*Server, error) {
 	if config.APIPort != "" {
 		server.apiServer = NewAPIServer(dbService, config.APIBindAddress, config.APIPort, config.ControlPort)
 		server.apiServer.onRevoke = server.revokeToken
+		server.apiServer.runtimeStats = server.runtimeStats
 	}
 
 	configured = true
