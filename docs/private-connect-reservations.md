@@ -21,6 +21,10 @@ Verification proves signed scope. The caller must still check live authority,
 route ownership, parent custody and admission for both transport sockets before
 consuming the ticket. It does not reserve sockets or track cleanup.
 
+The separate [dormant accounting package](private-reservation-accounting.md)
+tracks four-slot parent reservations and exact socket/setup joins. No listener
+uses that ledger yet.
+
 An opaque auxiliary connection provides bounded access to the same source. It
 does not prove the bytes are a PostgreSQL cancellation request. A trusted parent
 must construct that request if cancellation-only bytes are required. With source
