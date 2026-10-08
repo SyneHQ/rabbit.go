@@ -1,0 +1,172 @@
+package server
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net/url"
+	"path/filepath"
+	"sync/atomic"
+	"time"
+
+	"rabbit.go/transport"
+)
+
+// PrivateConnectConfig is installation-owned. Only files reference private keys.
+// Worker identity entries do not authorize any source without the live issuer.
+type PrivateConnectConfig struct {
+	Listen               string         `yaml:"listen"`
+	PrivateInterface     string         `yaml:"private_interface"`
+	CertificateFile      string         `yaml:"certificate_file"`
+	PrivateKeyFile       string         `yaml:"private_key_file"`
+	ClientCAFile         string         `yaml:"client_ca_file"`
+	AuthorityURL         string         `yaml:"authority_url"`
+	AuthorityCAFile      string         `yaml:"authority_ca_file"`
+	AuthorityCertificate string         `yaml:"authority_certificate_file"`
+	AuthorityPrivateKey  string         `yaml:"authority_private_key_file"`
+	ReplayCapacity       int            `yaml:"replay_capacity"`
+	Trust                []PrivateTrust `yaml:"trust"`
+}
+
+type PrivateTrust struct {
+	Issuer           string `yaml:"issuer"`
+	Audience         string `yaml:"audience"`
+	ClusterTenant    string `yaml:"cluster_tenant"`
+	ServicePrincipal string `yaml:"service_principal"`
+	WorkerIdentity   string `yaml:"worker_identity"`
+	PublicKeyHex     string `yaml:"public_key_hex"`
+}
+
+type privateConnect struct {
+	address     string
+	tls         *tls.Config
+	trust       []transport.Trust
+	replays     *transport.ReplayRegistry
+	authority   transport.LeaseAuthority
+	tokenActive func(context.Context, *Tunnel) (time.Time, error)
+	close       func()
+	failed      atomic.Bool
+}
+
+func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
+	if config == nil {
+		return nil, nil
+	}
+	fail := func() (*privateConnect, error) { return nil, fmt.Errorf("invalid private CONNECT configuration") }
+	address, err := privateBindAddress(config.Listen, config.PrivateInterface)
+	if err != nil || len(config.Trust) < 1 || len(config.Trust) > 64 {
+		return fail()
+	}
+	replayCapacity := config.ReplayCapacity
+	if replayCapacity == 0 {
+		replayCapacity = 16384
+	}
+	replays, err := transport.NewReplayRegistry(replayCapacity)
+	if err != nil {
+		return fail()
+	}
+	certificate, err := privateCertificate(config.CertificateFile, config.PrivateKeyFile)
+	if err != nil {
+		return fail()
+	}
+	clientCA, err := privateCA(config.ClientCAFile)
+	if err != nil {
+		return fail()
+	}
+	authorityCA, err := privateCA(config.AuthorityCAFile)
+	if err != nil {
+		return fail()
+	}
+	authorityCertificate, err := privateCertificate(config.AuthorityCertificate, config.AuthorityPrivateKey)
+	if err != nil {
+		return fail()
+	}
+	result := &privateConnect{address: address, replays: replays,
+		tls: &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert,
+			ClientCAs: clientCA, Certificates: []tls.Certificate{certificate}, NextProtos: []string{"http/1.1"}},
+	}
+	seen := make(map[string]bool)
+	for _, entry := range config.Trust {
+		key, err := hex.DecodeString(entry.PublicKeyHex)
+		identity, identityErr := url.Parse(entry.WorkerIdentity)
+		if err != nil || len(key) != ed25519.PublicKeySize || identityErr != nil || identity.Scheme != "spiffe" || identity.Host == "" || identity.User != nil || identity.RawQuery != "" || identity.Fragment != "" {
+			return fail()
+		}
+		for index, value := range []string{entry.Issuer, entry.Audience, entry.ClusterTenant, entry.ServicePrincipal, entry.WorkerIdentity} {
+			limit := 128
+			if index == 4 {
+				limit = 512
+			}
+			if value == "" || len(value) > limit {
+				return fail()
+			}
+			for _, char := range value {
+				if char <= 32 || char >= 127 {
+					return fail()
+				}
+			}
+		}
+		identityKey := entry.Issuer + "\x00" + entry.Audience + "\x00" + entry.ClusterTenant + "\x00" + entry.ServicePrincipal + "\x00" + entry.WorkerIdentity
+		if seen[identityKey] {
+			return fail()
+		}
+		seen[identityKey] = true
+		result.trust = append(result.trust, transport.Trust{Issuer: entry.Issuer, Audience: entry.Audience,
+			ClusterTenant: entry.ClusterTenant, ServicePrincipal: entry.ServicePrincipal, WorkerIdentity: entry.WorkerIdentity, PublicKey: key})
+	}
+	authority, err := transport.NewHTTPLeaseAuthority(config.AuthorityURL, &tls.Config{MinVersion: tls.VersionTLS13,
+		RootCAs: authorityCA, Certificates: []tls.Certificate{authorityCertificate}})
+	if err != nil {
+		return fail()
+	}
+	result.authority, result.close = authority, authority.Close
+	return result, nil
+}
+
+func privateFile(path string, secret bool) ([]byte, error) {
+	if !filepath.IsAbs(path) {
+		return nil, transport.ErrAuthority
+	}
+	file, err := openOperatorFile(path)
+	if err != nil {
+		return nil, transport.ErrAuthority
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 || info.Mode().Perm()&0022 != 0 || !operatorFileOwnerAllowed(info) || secret && info.Mode().Perm()&0077 != 0 {
+		return nil, transport.ErrAuthority
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
+	if err != nil || len(data) > 64<<10 {
+		return nil, transport.ErrAuthority
+	}
+	return data, nil
+}
+
+func privateCertificate(certFile, keyFile string) (tls.Certificate, error) {
+	cert, err := privateFile(certFile, false)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	key, err := privateFile(keyFile, true)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.X509KeyPair(cert, key)
+}
+
+func privateCA(path string) (*x509.CertPool, error) {
+	data, err := privateFile(path, false)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, transport.ErrAuthority
+	}
+	return pool, nil
+}
