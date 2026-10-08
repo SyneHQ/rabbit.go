@@ -1,3 +1,6 @@
+# Select standalone for a new installation. Existing application deployments use postgoose.
+RABBIT_IDENTITY_MODE=standalone
+
 # Database Configuration for Syne Tunneler
 # Copy this file to .env and update with your actual database credentials
 

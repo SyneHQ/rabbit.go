@@ -66,42 +66,18 @@ var listTeamsCmd = &cobra.Command{
 
 		ctx := context.Background()
 
-		// Query teams with their tokens and port assignments
-		query := `
-			SELECT 
-				t.id, t.name, 
-				COALESCE(t.description, '') as description, 
-				COALESCE(t."createdAt", NOW()) as created_at,
-				tt.id, tt.name, tt.token, tt.created_at, tt.expires_at, tt.last_used_at,
-				pa.port, pa.protocol
-			FROM public."Team" t
-			LEFT JOIN team_tokens tt ON t.id = tt.team_id AND tt.is_active = true
-			LEFT JOIN port_assignments pa ON tt.id = pa.token_id
-			ORDER BY t.name, tt.created_at`
-
-		rows, err := db.DB.QueryContext(ctx, query)
+		records, err := database.NewService(db).ListTeamsWithTokens(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to query teams: %w", err)
+			return err
 		}
-		defer rows.Close()
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "TEAM NAME\tTEAM ID\tTOKEN NAME\tPORT\tPROTOCOL\tCREATED\tLAST USED\tEXPIRES")
 
-		for rows.Next() {
-			var teamID, teamName, teamDesc, teamCreated string
-			var tokenID, tokenName, token, tokenCreated, tokenExpires, tokenLastUsed *string
-			var port *int
-			var protocol *string
-
-			err := rows.Scan(
-				&teamID, &teamName, &teamDesc, &teamCreated,
-				&tokenID, &tokenName, &token, &tokenCreated, &tokenExpires, &tokenLastUsed,
-				&port, &protocol,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to scan row: %w", err)
-			}
+		for _, record := range records {
+			teamID, teamName, teamCreated := record.TeamID, record.TeamName, record.TeamCreated
+			tokenName, tokenCreated, tokenExpires, tokenLastUsed := record.TokenName, record.TokenCreated, record.TokenExpires, record.TokenLastUsed
+			port, protocol := record.Port, record.Protocol
 
 			// Format output
 			portStr := "N/A"
@@ -139,7 +115,7 @@ var listTeamsCmd = &cobra.Command{
 
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				teamName,
-				teamID[:8]+"...", // Show first 8 chars of UUID
+				teamID,
 				tokenNameStr,
 				portStr,
 				protocolStr,
@@ -222,9 +198,30 @@ var healthCmd = &cobra.Command{
 	},
 }
 
+var bootstrapTeamCmd = &cobra.Command{
+	Use:   "bootstrap-team <team-id> <name> <owner-id>",
+	Short: "Create a standalone team and its first owner",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := database.NewDatabase(database.GetConfigFromEnv())
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+		defer cancel()
+		if err := db.BootstrapTeam(ctx, args[0], args[1], args[2]); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "Standalone team created.")
+		return nil
+	},
+}
+
 func init() {
 	// Add subcommands to database command
 	databaseCmd.AddCommand(migrateCmd)
+	databaseCmd.AddCommand(bootstrapTeamCmd)
 	databaseCmd.AddCommand(listTeamsCmd)
 	databaseCmd.AddCommand(statsCmd)
 	databaseCmd.AddCommand(healthCmd)
