@@ -100,3 +100,54 @@ func TestStreamAccountingPreservesTunnelSession(t *testing.T) {
 		t.Fatal("stream setup ignored cancellation")
 	}
 }
+
+func TestCompletedAuditCannotReactivateRevokedSession(t *testing.T) {
+	dsn := os.Getenv("SECURITY_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires disposable PostgreSQL")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, query := range []string{
+		`CREATE TEMP TABLE connection_sessions(id uuid PRIMARY KEY,status text,last_seen_at timestamptz)`,
+		`CREATE TEMP TABLE connection_logs(id uuid PRIMARY KEY,team_id text,token_id uuid,port_assign_id uuid,session_id uuid,client_ip text,client_port integer,server_port integer,protocol text,started_at timestamptz,ended_at timestamptz,bytes_received bigint,bytes_sent bigint,connection_time_ms bigint,status text,error_message text)`,
+	} {
+		if _, err := db.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := uuid.New()
+	ended := time.Now().UTC().Truncate(time.Microsecond)
+	started := ended.Add(-time.Second)
+	if _, err := db.ExecContext(ctx, `INSERT INTO connection_sessions VALUES($1,'inactive',$2)`, session, started); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(&Database{DB: db})
+	record := ConnectionLog{ID: uuid.New(), TeamID: "team", TokenID: uuid.New(), PortAssignID: uuid.New(), SessionID: session, ClientIP: "127.0.0.1", ClientPort: 4242, ServerPort: 5432, Protocol: "tcp", StartedAt: started, EndedAt: &ended, BytesReceived: 12, BytesSent: 34, Status: "closed"}
+	for range 2 {
+		if err := service.RecordCompletedStream(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var active int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM connection_sessions WHERE status='active'`).Scan(&active); err != nil || active != 0 {
+		t.Fatal("late audit reactivated a session")
+	}
+	var count int
+	var received, sent int64
+	var actualStart, actualEnd time.Time
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*),SUM(bytes_received),SUM(bytes_sent),MIN(started_at),MAX(ended_at) FROM connection_logs WHERE status='closed'`).Scan(&count, &received, &sent, &actualStart, &actualEnd); err != nil || count != 1 || received != 12 || sent != 34 || !actualStart.Equal(started) || !actualEnd.Equal(ended) {
+		t.Fatalf("completed audit changed values: count=%d bytes=%d/%d error=%v", count, received, sent, err)
+	}
+	record.ID = uuid.New()
+	record.Status = "active"
+	if err := service.RecordCompletedStream(ctx, record); err == nil {
+		t.Fatal("active audit record accepted")
+	}
+}
