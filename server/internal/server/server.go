@@ -476,13 +476,10 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, reader *
 		return
 	default:
 	}
-	oldClient := tunnel.Client
-	tunnel.Client = conn
+	oldConnections := s.replaceControlOwnerLocked(tunnel, conn)
 	tunnel.LocalPort = localPort
 	s.mu.Unlock()
-	if oldClient != nil {
-		oldClient.Close()
-	}
+	closeReplacedOwner(oldConnections)
 	err := writeControlFrame(conn, "SUCCESS:%s:%s\n", tunnel.ID, tunnel.RemotePort)
 	tunnel.controlMu.Unlock()
 	if err != nil {
@@ -504,12 +501,14 @@ func (s *Server) reconnectClientToTunnel(tunnel *Tunnel, conn net.Conn, reader *
 }
 
 func (s *Server) disconnectClient(tunnel *Tunnel, conn net.Conn) {
-	conn.Close()
 	s.mu.Lock()
+	var connections []net.Conn
 	if tunnel.Client == conn {
-		tunnel.Client = nil
+		connections = s.replaceControlOwnerLocked(tunnel, nil)
 	}
 	s.mu.Unlock()
+	closeShutdownConnection(conn)
+	closeReplacedOwner(connections)
 }
 
 // monitorControlConnection is owned by the tracked connection handler.
