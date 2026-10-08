@@ -3,8 +3,10 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"mime"
@@ -31,6 +33,13 @@ type LeaseResponse struct {
 
 type LeaseAuthority interface {
 	Authorize(context.Context, string, VerifiedOpen) (time.Time, error)
+}
+
+// ReservationLeaseAuthority renews signed version-2 scope. Its caller still
+// owns the exact parent, route and socket reservation. This interface does not
+// enable reserved ingress or prove that a source query has stopped.
+type ReservationLeaseAuthority interface {
+	AuthorizeReservation(context.Context, string, VerifiedReservation) (time.Time, error)
 }
 
 type HTTPLeaseAuthority struct {
@@ -84,13 +93,30 @@ func NewHTTPLeaseAuthority(endpoint string, config *tls.Config) (*HTTPLeaseAutho
 func (a *HTTPLeaseAuthority) Close() { a.transport.CloseIdleConnections() }
 
 func (a *HTTPLeaseAuthority) Authorize(ctx context.Context, token string, open VerifiedOpen) (time.Time, error) {
-	if len(token) == 0 || len(token) > MaxTokenBytes || open.Digest() == "" {
+	return a.authorize(ctx, token, Version, open.Digest(), open.LeaseDeadline)
+}
+
+// AuthorizeReservation preserves token and open_sha256 while requiring an
+// explicit version-2 response. A version-1 authority cannot renew this scope.
+func (a *HTTPLeaseAuthority) AuthorizeReservation(ctx context.Context, token string, open VerifiedReservation) (time.Time, error) {
+	if len(token) == 0 || len(token) > MaxTokenBytes || open.claims.Version != ReservationVersion {
+		return time.Time{}, ErrAuthority
+	}
+	sum := sha256.Sum256([]byte(token))
+	if hex.EncodeToString(sum[:]) != open.Digest() {
+		return time.Time{}, ErrAuthority
+	}
+	return a.authorize(ctx, token, ReservationVersion, open.Digest(), open.LeaseDeadline)
+}
+
+func (a *HTTPLeaseAuthority) authorize(ctx context.Context, token string, version int, digest string, leaseDeadline func(string, int64, time.Time) (time.Time, error)) (time.Time, error) {
+	if len(token) == 0 || len(token) > MaxTokenBytes || digest == "" {
 		return time.Time{}, ErrAuthority
 	}
 	if _, valid := certificateDeadline(a.clientChain, time.Now()); !valid {
 		return time.Time{}, ErrAuthority
 	}
-	data, err := json.Marshal(LeaseRequest{Version: Version, Token: token, Digest: open.Digest()})
+	data, err := json.Marshal(LeaseRequest{Version: version, Token: token, Digest: digest})
 	if err != nil {
 		return time.Time{}, ErrAuthority
 	}
@@ -111,7 +137,7 @@ func (a *HTTPLeaseAuthority) Authorize(ctx context.Context, token string, open V
 	}
 	data, err = io.ReadAll(io.LimitReader(response.Body, 4097))
 	var result LeaseResponse
-	if err != nil || len(data) > 4096 || decodeStrict(data, &result) != nil || result.Version != Version {
+	if err != nil || len(data) > 4096 || decodeStrict(data, &result) != nil || result.Version != version {
 		return time.Time{}, ErrAuthority
 	}
 	now := time.Now()
@@ -120,7 +146,7 @@ func (a *HTTPLeaseAuthority) Authorize(ctx context.Context, token string, open V
 	if !clientValid || !peerValid {
 		return time.Time{}, ErrAuthority
 	}
-	until, err := open.LeaseDeadline(result.Digest, result.ValidUntil, now)
+	until, err := leaseDeadline(result.Digest, result.ValidUntil, now)
 	if err != nil {
 		return time.Time{}, err
 	}

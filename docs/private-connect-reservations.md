@@ -8,6 +8,9 @@ The `transport` package provides:
 - `SignReservation` for a version-2 ticket with type `rabbit-connect-reservation+jwt`.
 - `VerifyReservationData` for a data ticket with no parent digest.
 - `VerifyReservationAuxiliary` for a ticket bound to an exact verified data open.
+- `ReservationLeaseAuthority.AuthorizeReservation` for explicit version-2
+  renewal over the existing verified mTLS authority client. Requests retain
+  `token` and `open_sha256`; version-1 responses cannot renew reservations.
 - `ReplayRegistry.ConsumeReservation`, sharing version 1's issuer/audience/JTI
   namespace and capacity. A version change cannot bypass replay tracking.
 
@@ -20,6 +23,11 @@ may have passed while its session remains live.
 Verification proves signed scope. The caller must still check live authority,
 route ownership, parent custody and admission for both transport sockets before
 consuming the ticket. It does not reserve sockets or track cleanup.
+
+Renewals bind the exact verified ticket. Their leases cannot exceed 15 seconds,
+the signed session, or either TLS identity's validity. A live parent can renew
+after its initial admission deadline. The issuer endpoint and the parent owner
+that keeps renewing after data EOF remain required before activation.
 
 The separate [dormant accounting package](private-reservation-accounting.md)
 tracks four-slot parent reservations and exact socket/setup joins. Construction-only
