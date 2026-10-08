@@ -73,3 +73,38 @@ func TestPrivateReferencedFilesEnforceWriteAndReadPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestPrivateMountedKeysRequireExplicitServiceGroup(t *testing.T) {
+	gid := uint32(os.Getegid())
+	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640, 0444, 0644, 0660, 0650, 0641} {
+		path := filepath.Join(t.TempDir(), "mounted.key")
+		if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(path, -1, int(gid)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := privateFileForGroup(path, true, &gid)
+		want := mode&0077 == 0 || mode&0077 == 0040
+		if (err == nil) != want {
+			t.Fatalf("key mode %o with trusted group: %v", mode, err)
+		}
+		if mode&0077 == 0040 {
+			if _, err := privateFile(path, true); err == nil {
+				t.Fatal("group-readable key accepted without opt-in")
+			}
+			foreign := gid + 1
+			if _, err := privateFileForGroup(path, true, &foreign); err == nil {
+				t.Fatal("key accepted for a different configured group")
+			}
+		}
+	}
+	if !operatorFileGroupAllowed(privateOwnerInfo{stat: &syscall.Stat_t{Gid: gid}}, gid) ||
+		operatorFileGroupAllowed(privateOwnerInfo{stat: &syscall.Stat_t{Gid: gid + 1}}, gid) ||
+		operatorFileGroupAllowed(privateOwnerInfo{}, gid) {
+		t.Fatal("mounted key group ownership is not exact")
+	}
+}
