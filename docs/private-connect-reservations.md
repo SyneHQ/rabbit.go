@@ -22,8 +22,8 @@ route ownership, parent custody and admission for both transport sockets before
 consuming the ticket. It does not reserve sockets or track cleanup.
 
 The separate [dormant accounting package](private-reservation-accounting.md)
-tracks four-slot parent reservations and exact socket/setup joins. No listener
-uses that ledger yet.
+tracks four-slot parent reservations and exact socket/setup joins. Construction-only
+listener tests share its socket/work custody; no operator setting enables it.
 
 An opaque auxiliary connection provides bounded access to the same source. It
 does not prove the bytes are a PostgreSQL cancellation request. A trusted parent

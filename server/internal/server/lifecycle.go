@@ -5,14 +5,17 @@ import (
 	"net"
 
 	"rabbit.go/internal/database"
+	"rabbit.go/transport"
 	"time"
 )
 
 type pendingConnection struct {
-	tunnel   *Tunnel
-	owner    net.Conn
-	ready    chan net.Conn
-	rejected chan struct{}
+	tunnel      *Tunnel
+	owner       net.Conn
+	ready       chan net.Conn
+	rejected    chan struct{}
+	reservation *transport.ReservationPair
+	handlerDone <-chan struct{}
 }
 
 type tunnelStream struct {
@@ -48,6 +51,11 @@ func (s *Server) replaceControlOwnerLocked(t *Tunnel, next net.Conn) []net.Conn 
 		select {
 		case data := <-pending.ready:
 			if data != nil {
+				// The pairing goroutine retains its work acknowledgement. Close
+				// this socket now, but let that owner consume or drain the slot.
+				if _, retained := data.(*pairedIngress); retained {
+					pending.ready <- data
+				}
 				connections = append(connections, data)
 			}
 		default:

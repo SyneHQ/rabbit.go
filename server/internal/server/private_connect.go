@@ -45,16 +45,18 @@ func (s *Server) handlePrivateConnections() {
 			return
 		}
 		consecutive = 0
-		if s.securityMiddleware == nil || s.securityMiddleware.ValidateConnection(raw) != nil {
+		admitted, err := s.acceptIngress(raw, false)
+		if err != nil {
 			raw.Close()
 			continue
 		}
-		conn := tls.Server(s.securityMiddleware.WrapConnection(raw), s.private.tls)
+		conn := tls.Server(admitted, s.private.tls)
 		s.mu.Lock()
 		select {
 		case <-s.stopChan:
 			s.mu.Unlock()
 			closeShutdownConnection(conn)
+			s.finishIngress(admitted)
 			return
 		default:
 		}
@@ -63,6 +65,7 @@ func (s *Server) handlePrivateConnections() {
 		s.mu.Unlock()
 		go func() {
 			defer s.wg.Done()
+			defer s.finishIngress(admitted)
 			defer func() {
 				closeShutdownConnection(conn)
 				s.mu.Lock()
@@ -138,7 +141,10 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 		privateFailure(conn, "503 Service Unavailable")
 		return
 	}
-	err = s.private.replays.Consume(verified, time.Now())
+	err = s.ordinaryIngress(conn)
+	if err == nil {
+		err = s.private.replays.Consume(verified, time.Now())
+	}
 	if err == nil {
 		tunnel.wg.Add(1)
 	}
@@ -155,7 +161,7 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 		privateFailure(conn, "503 Service Unavailable")
 		return
 	}
-	defer closeShutdownConnection(data)
+	defer finishPairedIngress(data)
 	// Pairing can spend most of the first lease. Refresh custody before sending
 	// success and before either direction can expose database bytes.
 	refresh, cancel := context.WithDeadline(parent, until)
