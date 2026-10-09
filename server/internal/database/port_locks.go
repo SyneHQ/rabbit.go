@@ -23,7 +23,7 @@ func (d *Database) TryPortLock(ctx context.Context, port int, owner uuid.UUID, e
 	if port < 1 || port > 65535 || owner == uuid.Nil || expiration <= 0 {
 		return false, fmt.Errorf("invalid port lock")
 	}
-	return d.Redis.SetNX(ctx, portLockKey(port), owner.String(), expiration).Result()
+	return d.Redis.SetNX(ctx, d.redisKey(portLockKey(port)), owner.String(), expiration).Result()
 }
 
 // ReleasePortLock cannot remove a replacement lease after expiry or contention.
@@ -31,6 +31,6 @@ func (d *Database) ReleasePortLock(ctx context.Context, port int, owner uuid.UUI
 	if port < 1 || port > 65535 || owner == uuid.Nil {
 		return false, fmt.Errorf("invalid port lock")
 	}
-	removed, err := releasePortLock.Run(ctx, d.Redis, []string{portLockKey(port)}, owner.String()).Int64()
+	removed, err := releasePortLock.Run(ctx, d.Redis, []string{d.redisKey(portLockKey(port))}, owner.String()).Int64()
 	return removed == 1, err
 }

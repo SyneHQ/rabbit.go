@@ -121,6 +121,8 @@ jobs:
               "TestTransportAuthorityIsReadOnlyAndTracksRevocation",
               "TestNativePrivateConnectPostgres", "TestNativePrivateConnectRedis",
               "TestNativePrivateConnectHalfClose",
+              "TestRedisKeyPrefixLegacyAndIndependentNamespaces",
+              "TestRedisKeyPrefixRestrictedACLAllocationAndRevocation",
           }
           for path in sys.argv[1:]:
               with open(path, encoding="utf-8") as source:
