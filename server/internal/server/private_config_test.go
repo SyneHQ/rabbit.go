@@ -3,6 +3,8 @@
 package server
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
@@ -51,6 +53,46 @@ func TestPrivateConnectConfigurationIsOptInAndUsesPrivateMTLS(t *testing.T) {
 		t.Fatal("valid private configuration rejected", err)
 	}
 	active.close()
+	_, receiptKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptDER, err := x509.MarshalPKCS8PrivateKey(receiptKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup := config
+	cleanup.AcceptedKeyID = "fixture-route"
+	cleanup.AcceptedPrivateKeyFile = write("accepted.key", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: receiptDER}), 0600)
+	cleanup.CleanupAuthorityURL = "https://authority.internal/cleanup-lease"
+	enabled, err := loadPrivateConnect(&cleanup)
+	if err != nil {
+		t.Fatal("valid opt-in cleanup rejected", err)
+	}
+	if enabled.cleanup == nil || enabled.accepted == nil || enabled.acceptedLimit != 16384 {
+		t.Fatal("cleanup configuration not initialized")
+	}
+	enabled.close()
+	for _, mode := range []string{"missing-key", "missing-id", "missing-url", "bad-id", "issuer-key"} {
+		changed := cleanup
+		switch mode {
+		case "missing-key":
+			changed.AcceptedPrivateKeyFile = ""
+		case "missing-id":
+			changed.AcceptedKeyID = ""
+		case "missing-url":
+			changed.CleanupAuthorityURL = ""
+		case "bad-id":
+			changed.AcceptedKeyID = "bad key"
+		case "issuer-key":
+			changed.Trust = append([]PrivateTrust{}, config.Trust...)
+			changed.Trust[0].PublicKeyHex = hex.EncodeToString(receiptKey.Public().(ed25519.PublicKey))
+		}
+		if loaded, err := loadPrivateConnect(&changed); err == nil {
+			loaded.close()
+			t.Fatal("unsafe cleanup configuration accepted", mode)
+		}
+	}
 	for _, field := range []string{"issuer", "audience", "cluster", "service"} {
 		t.Run("oversized "+field, func(t *testing.T) {
 			changed := config
