@@ -106,9 +106,17 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 		s.handlePrivateRoute(handshake, conn, reader, state)
 		return
 	}
-	authority, token, err := readPrivateConnect(reader)
+	authority, token, mode, err := readPrivateConnectMode(reader)
 	if err != nil {
 		privateFailure(conn, "400 Bad Request")
+		return
+	}
+	if mode == "rabbit-postgres-abort" {
+		s.handlePrivatePostgresAbort(parent, conn, reader, authority, token, state)
+		return
+	}
+	if mode == "rabbit-accepted-open" && (s.private.cleanup == nil || len(s.private.acceptedKey) == 0) {
+		privateFailure(conn, "403 Forbidden")
 		return
 	}
 	var verified transport.VerifiedOpen
@@ -175,8 +183,16 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 		privateFailure(conn, "403 Forbidden")
 		return
 	}
-	external := &bufferedConnection{Conn: conn, reader: reader}
-	stream, ok := s.beginTunnelStream(tunnel, owner, external, data)
+	var external net.Conn = &bufferedConnection{Conn: conn, reader: reader}
+	relayData := data
+	var gate *privateDataGate
+	if mode == "rabbit-accepted-open" {
+		gate = newPrivateDataGate()
+		defer gate.close()
+		external = &privateGatedConnection{Conn: external, gate: gate}
+		relayData = &privateGatedConnection{Conn: data, gate: gate, source: true}
+	}
+	stream, ok := s.beginTunnelStream(tunnel, owner, external, relayData)
 	if !ok {
 		privateFailure(conn, "503 Service Unavailable")
 		return
@@ -189,17 +205,27 @@ func (s *Server) handlePrivateConnect(conn *tls.Conn) {
 	guardDone := make(chan struct{})
 	go func() {
 		defer close(guardDone)
-		s.renewPrivate(guard, token, verified, tunnel, owner, external, data, until)
+		s.renewPrivate(guard, token, verified, tunnel, owner, external, relayData, until)
 	}()
 	defer func() { cancelGuard(); <-guardDone }()
-	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+	response := "HTTP/1.1 200 Connection Established\r\n\r\n"
+	if mode == "rabbit-accepted-open" {
+		receipt, release, err := s.acceptPrivateParent(token, verified, tunnel, owner, stream, gate)
+		if err != nil {
+			privateFailure(conn, "403 Forbidden")
+			return
+		}
+		defer release()
+		response = "HTTP/1.1 200 Connection Established\r\nRabbit-Accepted-Open: " + receipt + "\r\n\r\n"
+	}
+	if _, err := io.WriteString(conn, response); err != nil {
 		return
 	}
 	remote, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
 		return
 	}
-	tunnel.bridgeConnectionsWithLogging(external, data, tunnel.createConnectionLog(remote.IP.String(), remote.Port))
+	tunnel.bridgeConnectionsWithLogging(external, relayData, tunnel.createConnectionLog(remote.IP.String(), remote.Port))
 }
 
 func (s *Server) authorizePrivate(parent context.Context, token string, verified transport.VerifiedOpen, expected *Tunnel, owner net.Conn) (time.Time, error) {
@@ -217,6 +243,9 @@ func (s *Server) authorizePrivate(parent context.Context, token string, verified
 	}
 	until, err := s.private.authority.Authorize(ctx, token, verified)
 	if err != nil || ctx.Err() != nil {
+		if ctx.Err() == nil && errors.Is(err, transport.ErrLeaseDenied) {
+			return time.Time{}, transport.ErrLeaseDenied
+		}
 		return time.Time{}, transport.ErrAuthority
 	}
 	if !tokenUntil.IsZero() && tokenUntil.Before(until) {
@@ -229,13 +258,31 @@ func (s *Server) authorizePrivate(parent context.Context, token string, verified
 func (s *Server) renewPrivate(ctx context.Context, token string, verified transport.VerifiedOpen, tunnel *Tunnel, owner, external, data net.Conn, until time.Time) {
 	defer closeShutdownConnection(external)
 	defer closeShutdownConnection(data)
+	defer func() {
+		if gated, ok := external.(*privateGatedConnection); ok {
+			gated.gate.close()
+		}
+		s.mu.Lock()
+		if s.private.accepted != nil {
+			delete(s.private.accepted, verified.Digest())
+		}
+		s.mu.Unlock()
+	}()
 	for {
 		remaining := time.Until(until)
 		if remaining <= 0 {
 			return
 		}
 		timer := time.NewTimer(min(5*time.Second, max(250*time.Millisecond, remaining/3)))
+		var suspended <-chan struct{}
+		if gated, ok := external.(*privateGatedConnection); ok {
+			suspended = gated.gate.suspended
+		}
 		select {
+		case <-suspended:
+			timer.Stop()
+			s.retainPrivateCleanup(ctx, verified, external, data)
+			return
 		case <-ctx.Done():
 			timer.Stop()
 			return
@@ -248,6 +295,9 @@ func (s *Server) renewPrivate(ctx context.Context, token string, verified transp
 		next, err := s.authorizePrivate(request, token, verified, tunnel, owner)
 		cancel()
 		if err != nil || !time.Now().Before(until) {
+			if errors.Is(err, transport.ErrLeaseDenied) && time.Now().Before(until) {
+				s.retainPrivateCleanup(ctx, verified, external, data)
+			}
 			return
 		}
 		if external.SetDeadline(next) != nil || data.SetDeadline(next) != nil {
