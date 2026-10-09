@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net"
@@ -15,6 +16,9 @@ import (
 	"net/url"
 	"time"
 )
+
+// ErrLeaseDenied identifies an explicit authority denial. Network, TLS and malformed responses do not permit cleanup retention.
+var ErrLeaseDenied = errors.New("private DATA lease explicitly denied")
 
 // LeaseRequest reaches only the operator-selected authority over verified mTLS.
 // The authority verifies the signed ticket, exact source-to-token mapping and
@@ -131,6 +135,9 @@ func (a *HTTPLeaseAuthority) authorize(ctx context.Context, token string, versio
 		return time.Time{}, ErrAuthority
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusForbidden {
+		return time.Time{}, ErrLeaseDenied
+	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" || response.StatusCode != http.StatusOK || response.Header.Get("Content-Encoding") != "" {
 		return time.Time{}, ErrAuthority
