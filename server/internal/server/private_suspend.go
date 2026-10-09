@@ -14,15 +14,15 @@ import (
 // can pass after a positive cleanup lease. Query writes never resume, even if a
 // later ordinary lease would succeed. A busy write prevents retention.
 type privateDataGate struct {
-	mu         sync.RWMutex
-	paused     bool
-	receive    bool
-	remaining  int64
-	discarded  int64
-	done       chan struct{}
-	suspended  chan struct{}
-	authorized chan struct{}
-	once       sync.Once
+	mu          sync.RWMutex
+	paused      bool
+	receiveOnce sync.Once
+	remaining   int64
+	discarded   int64
+	done        chan struct{}
+	suspended   chan struct{}
+	authorized  chan struct{}
+	once        sync.Once
 }
 
 func newPrivateDataGate() *privateDataGate {
@@ -45,14 +45,7 @@ func (g *privateDataGate) pause() bool {
 	}
 	return true
 }
-func (g *privateDataGate) allowReceive() {
-	g.mu.Lock()
-	if !g.receive {
-		g.receive = true
-		close(g.authorized)
-	}
-	g.mu.Unlock()
-}
+func (g *privateDataGate) allowReceive()  { g.receiveOnce.Do(func() { close(g.authorized) }) }
 func (g *privateDataGate) isPaused() bool { g.mu.RLock(); defer g.mu.RUnlock(); return g.paused }
 func (g *privateDataGate) waitReceive() error {
 	if !g.isPaused() {
@@ -92,15 +85,15 @@ func (c *privateGatedConnection) Read(b []byte) (int, error) {
 		if !c.gate.isPaused() {
 			return n, err
 		}
-		if err != nil {
-			c.gate.close()
-			return 0, err
-		}
-		if c.source {
+		if c.source && n > 0 {
 			if e := c.gate.waitReceive(); e != nil {
 				return 0, e
 			}
-			return n, nil
+			return n, err
+		}
+		if err != nil {
+			c.gate.close()
+			return 0, err
 		}
 		if !c.gate.discard(n) {
 			c.gate.close()
@@ -221,8 +214,13 @@ func (s *Server) retainPrivateCleanup(ctx context.Context, verified transport.Ve
 	}
 }
 func (s *Server) acceptedRetentionActiveLocked(entry *acceptedPrivateParent) bool {
-	if entry == nil || s.private.accepted[entry.verified.Digest()] != entry || !time.Now().Before(entry.verified.SessionDeadline()) {
+	if entry == nil || entry.gate == nil || s.private.accepted[entry.verified.Digest()] != entry || !time.Now().Before(entry.verified.SessionDeadline()) {
 		return false
+	}
+	select {
+	case <-entry.gate.done:
+		return false
+	default:
 	}
 	tunnel, owner, active := s.privateOwnerLocked(entry.verified.Claims())
 	_, held := entry.tunnel.streams[entry.stream]

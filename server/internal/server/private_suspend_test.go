@@ -191,3 +191,73 @@ func TestPrivateDataGateNeedsPositiveReceiveAuthority(t *testing.T) {
 	}
 	<-sent
 }
+
+type finalCompletionConn struct{ net.Conn }
+
+func (c finalCompletionConn) Read(b []byte) (int, error) { return copy(b, "ReadyForQuery"), io.EOF }
+func TestPrivateDataGatePreservesFinalCompletionWithEOF(t *testing.T) {
+	raw, peer := net.Pipe()
+	defer raw.Close()
+	defer peer.Close()
+	gate := newPrivateDataGate()
+	if !gate.pause() {
+		t.Fatal("pause failed")
+	}
+	gate.allowReceive()
+	source := &privateGatedConnection{Conn: finalCompletionConn{raw}, gate: gate, source: true}
+	buf := make([]byte, 32)
+	n, err := source.Read(buf)
+	if string(buf[:n]) != "ReadyForQuery" || err != io.EOF {
+		t.Fatal("final protocol completion discarded", n, err)
+	}
+	select {
+	case <-gate.done:
+		t.Fatal("gate closed before final completion write")
+	default:
+	}
+}
+func TestPrivateCleanupBusyWriteDoesNotBlockServerOwnership(t *testing.T) {
+	f := newPrivateFixture(t, func(c net.Conn) { _, _ = io.Copy(io.Discard, c) })
+	pub, a := enableCleanupFixture(t, f)
+	parent, _, accepted := acceptedFixtureOpen(t, f, pub)
+	defer parent.Close()
+	f.server.mu.RLock()
+	entry := f.server.private.accepted[accepted.DataTicketSHA256]
+	f.server.mu.RUnlock()
+	raw, peer := net.Pipe()
+	defer peer.Close()
+	defer raw.Close()
+	raw.SetDeadline(time.Now().Add(2 * time.Second))
+	blocked := &privateGatedConnection{Conn: raw, gate: entry.gate, source: true}
+	joined := make(chan struct{})
+	go func() { blocked.Write([]byte("blocked normal DATA")); close(joined) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if !entry.gate.mu.TryLock() {
+			break
+		}
+		entry.gate.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("normal write did not start")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	started := time.Now()
+	_, _, status, _ := cleanupConnect(t, f, abortFixtureToken(t, f, a, accepted, "a"), "Rabbit-Postgres-Abort: required-v1\r\n")
+	if status != "HTTP/1.1 403 Forbidden\r\n" || time.Since(started) > 500*time.Millisecond {
+		t.Fatal("busy write blocked abort rejection", status, time.Since(started))
+	}
+	ownership := make(chan struct{})
+	go func() { f.server.mu.Lock(); f.server.mu.Unlock(); close(ownership) }()
+	select {
+	case <-ownership:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("cleanup blocked server ownership lock")
+	}
+	raw.Close()
+	select {
+	case <-joined:
+	case <-time.After(time.Second):
+		t.Fatal("blocked DATA writer did not join")
+	}
+}

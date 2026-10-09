@@ -70,8 +70,13 @@ func (s *Server) acceptPrivateParent(token string, verified transport.VerifiedOp
 }
 
 func (s *Server) acceptedParentActiveLocked(entry *acceptedPrivateParent, claims transport.PostgresAbortClaims) bool {
-	if entry == nil || s.private.accepted[claims.DataTicketSHA256] != entry || entry.acceptanceID != claims.AcceptanceID || !time.Now().Before(entry.verified.SessionDeadline()) {
+	if entry == nil || entry.gate == nil || s.private.accepted[claims.DataTicketSHA256] != entry || entry.acceptanceID != claims.AcceptanceID || !time.Now().Before(entry.verified.SessionDeadline()) {
 		return false
+	}
+	select {
+	case <-entry.gate.done:
+		return false
+	default:
 	}
 	c := entry.verified.Claims()
 	if c.Issuer != claims.Issuer || c.Audience != claims.Audience || c.WorkerIdentity != claims.WorkerIdentity || c.WorkerCertSHA256 != claims.WorkerCertSHA256 {
@@ -137,14 +142,30 @@ func (s *Server) handlePrivatePostgresAbort(parent context.Context, conn *tls.Co
 		privateFailure(conn, "403 Forbidden")
 		return
 	}
-	s.mu.RLock()
+	s.mu.Lock()
 	entry := s.private.accepted[claims.DataTicketSHA256]
 	active := s.acceptedParentActiveLocked(entry, claims)
-	s.mu.RUnlock()
-	if !active || entry.verified.Claims().Authority != authority {
+	if !active || entry.verified.Claims().Authority != authority || entry.used {
+		s.mu.Unlock()
 		privateFailure(conn, "403 Forbidden")
 		return
 	}
+	// Reserve one cleanup attempt before any network call. A failed attempt
+	// cannot be retried with a new ticket for this accepted physical parent.
+	entry.used = true
+	s.mu.Unlock()
+	if !entry.gate.pause() {
+		closeShutdownConnection(entry.stream.external)
+		closeShutdownConnection(entry.stream.data)
+		privateFailure(conn, "403 Forbidden")
+		return
+	}
+	admitted := false
+	defer func() {
+		if !admitted {
+			entry.gate.close()
+		}
+	}()
 	until, err := transport.VerifiedAbortPeerDeadline(state, claims, time.Now())
 	if err != nil {
 		privateFailure(conn, "403 Forbidden")
@@ -157,12 +178,8 @@ func (s *Server) handlePrivatePostgresAbort(parent context.Context, conn *tls.Co
 		privateFailure(conn, "403 Forbidden")
 		return
 	}
-	if entry.gate == nil || !entry.gate.pause() {
-		privateFailure(conn, "403 Forbidden")
-		return
-	}
 	s.mu.Lock()
-	if !s.acceptedParentActiveLocked(entry, claims) || entry.used {
+	if !s.acceptedParentActiveLocked(entry, claims) {
 		s.mu.Unlock()
 		privateFailure(conn, "403 Forbidden")
 		return
@@ -172,7 +189,6 @@ func (s *Server) handlePrivatePostgresAbort(parent context.Context, conn *tls.Co
 		err = s.private.replays.ConsumeAbort(claims, time.Now())
 	}
 	if err == nil {
-		entry.used = true
 		entry.tunnel.wg.Add(1)
 	}
 	s.mu.Unlock()
@@ -208,6 +224,7 @@ func (s *Server) handlePrivatePostgresAbort(parent context.Context, conn *tls.Co
 	if _, err = io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
 	}
+	admitted = true
 	guard, stopGuard := context.WithCancel(ctx)
 	guardDone := make(chan struct{})
 	go func() {
@@ -259,14 +276,16 @@ func boundedAbortRelay(external, data net.Conn) {
 
 func (s *Server) pinPrivateCleanup(entry *acceptedPrivateParent, lease transport.CleanupLeaseResponse) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.acceptedRetentionActiveLocked(entry) || lease.ValidateAt(time.Now()) != nil {
+		s.mu.Unlock()
 		return false
 	}
 	if entry.cutoff.ValidUntil != 0 && (entry.cutoff.CancellationStartedAt != lease.CancellationStartedAt || lease.ValidUntil > entry.cutoff.ValidUntil) {
+		s.mu.Unlock()
 		return false
 	}
 	entry.cutoff = lease
+	s.mu.Unlock()
 	entry.gate.allowReceive()
 	return true
 }
