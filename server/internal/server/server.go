@@ -284,7 +284,7 @@ func (s *Server) Start() (err error) {
 
 	// Bind management synchronously so Start cannot report an unavailable API as ready.
 	if s.apiServer != nil {
-		apiListener, listenErr := net.Listen("tcp", s.apiServer.server.Addr)
+		apiListener, listenErr := managementListener(s.apiServer.server.Addr)
 		if listenErr != nil {
 			return fmt.Errorf("error starting management listener: %w", listenErr)
 		}

@@ -121,11 +121,12 @@ func NewAPIServer(dbService *database.Service, bindAddress string, apiPort strin
 
 	// Create HTTP server
 	apiServer.server = &http.Server{
-		Addr:         net.JoinHostPort(bindAddress, apiPort),
-		Handler:      router,
-		WriteTimeout: 30 * time.Second,
-		ReadTimeout:  30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              net.JoinHostPort(bindAddress, apiPort),
+		Handler:           router,
+		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	return apiServer
@@ -170,7 +171,11 @@ func (api *APIServer) Start() error {
 	log.Printf("   GET  /api/v1/teams/:teamId/tokens - Get team's tokens")
 	log.Printf("   DELETE /api/v1/teams/:teamId/tokens/:tokenId - Delete a token")
 
-	return api.server.ListenAndServe()
+	listener, err := managementListener(api.server.Addr)
+	if err != nil {
+		return err
+	}
+	return api.server.Serve(listener)
 }
 
 // Stop stops the API server
