@@ -17,22 +17,27 @@ import (
 
 // Database represents the database service with PostgreSQL and Redis
 type Database struct {
-	DB           *sql.DB
-	Redis        *redis.Client
-	ctx          context.Context
-	IdentityMode string
+	DB             *sql.DB
+	Redis          *redis.Client
+	ctx            context.Context
+	IdentityMode   string
+	redisKeyPrefix string
 }
 
 // Config holds database configuration
 type Config struct {
-	PostgresURL  string
-	RedisURL     string
-	RedisDB      int
-	IdentityMode string
+	PostgresURL    string
+	RedisURL       string
+	RedisDB        int
+	IdentityMode   string
+	RedisKeyPrefix string
 }
 
 // NewDatabase creates a new database instance
 func NewDatabase(config Config) (*Database, error) {
+	if err := validateRedisKeyPrefix(config.RedisKeyPrefix); err != nil {
+		return nil, err
+	}
 	mode, err := normalizeIdentityMode(config.IdentityMode)
 	if err != nil {
 		return nil, err
@@ -88,10 +93,11 @@ func NewDatabase(config Config) (*Database, error) {
 
 	configured = true
 	return &Database{
-		DB:           db,
-		Redis:        rdb,
-		ctx:          context.Background(),
-		IdentityMode: mode,
+		DB:             db,
+		Redis:          rdb,
+		ctx:            context.Background(),
+		IdentityMode:   mode,
+		redisKeyPrefix: config.RedisKeyPrefix,
 	}, nil
 }
 
@@ -159,10 +165,11 @@ func GetConfigFromEnv() Config {
 	}
 
 	return Config{
-		PostgresURL:  getEnvOrDefault("DATABASE_URL", "postgres://localhost/syne_tunneler?sslmode=disable"),
-		RedisURL:     getEnvOrDefault("REDIS_URL", "redis://localhost:6379"),
-		RedisDB:      0,
-		IdentityMode: os.Getenv("RABBIT_IDENTITY_MODE"),
+		PostgresURL:    getEnvOrDefault("DATABASE_URL", "postgres://localhost/syne_tunneler?sslmode=disable"),
+		RedisURL:       getEnvOrDefault("REDIS_URL", "redis://localhost:6379"),
+		RedisDB:        0,
+		IdentityMode:   os.Getenv("RABBIT_IDENTITY_MODE"),
+		RedisKeyPrefix: os.Getenv("RABBIT_REDIS_KEY_PREFIX"),
 	}
 }
 
@@ -208,17 +215,17 @@ func (d *Database) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
 
 // SetCache sets a value in Redis cache with expiration
 func (d *Database) SetCache(key string, value interface{}, expiration time.Duration) error {
-	return d.Redis.Set(d.ctx, key, value, expiration).Err()
+	return d.Redis.Set(d.ctx, d.redisKey(key), value, expiration).Err()
 }
 
 // GetCache gets a value from Redis cache
 func (d *Database) GetCache(key string) (string, error) {
-	return d.Redis.Get(d.ctx, key).Result()
+	return d.Redis.Get(d.ctx, d.redisKey(key)).Result()
 }
 
 // DeleteCache deletes a key from Redis cache
 func (d *Database) DeleteCache(key string) error {
-	return d.Redis.Del(d.ctx, key).Err()
+	return d.Redis.Del(d.ctx, d.redisKey(key)).Err()
 }
 
 // SetActiveSession sets an active connection session in Redis
@@ -227,7 +234,7 @@ func (d *Database) SetActiveSession(sessionID uuid.UUID, data interface{}) error
 }
 
 func (d *Database) SetActiveSessionContext(ctx context.Context, sessionID uuid.UUID, data interface{}) error {
-	key := fmt.Sprintf("session:%s", sessionID.String())
+	key := d.redisKey(fmt.Sprintf("session:%s", sessionID.String()))
 
 	// Serialize data to JSON before storing in Redis
 	jsonData, err := json.Marshal(data)
@@ -240,7 +247,7 @@ func (d *Database) SetActiveSessionContext(ctx context.Context, sessionID uuid.U
 
 // GetActiveSession gets an active connection session from Redis
 func (d *Database) GetActiveSession(sessionID uuid.UUID) (string, error) {
-	key := fmt.Sprintf("session:%s", sessionID.String())
+	key := d.redisKey(fmt.Sprintf("session:%s", sessionID.String()))
 	return d.Redis.Get(d.ctx, key).Result()
 }
 
@@ -250,11 +257,11 @@ func (d *Database) DeleteActiveSession(sessionID uuid.UUID) error {
 }
 
 func (d *Database) DeleteActiveSessionContext(ctx context.Context, sessionID uuid.UUID) error {
-	key := fmt.Sprintf("session:%s", sessionID.String())
+	key := d.redisKey(fmt.Sprintf("session:%s", sessionID.String()))
 	return d.Redis.Del(ctx, key).Err()
 }
 
 // IncrementCounter increments a counter in Redis
 func (d *Database) IncrementCounter(key string) (int64, error) {
-	return d.Redis.Incr(d.ctx, key).Result()
+	return d.Redis.Incr(d.ctx, d.redisKey(key)).Result()
 }

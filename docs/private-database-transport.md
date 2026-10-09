@@ -61,6 +61,7 @@ Set these through the service's secret/configuration provider:
 | Setting | Purpose |
 | --- | --- |
 | `DATABASE_URL`, `REDIS_URL` | Metadata connections; both are required by migrations too |
+| `RABBIT_REDIS_KEY_PREFIX` | Optional Redis namespace. Empty preserves existing keys. See [shared Redis](shared-redis.md). |
 | `RABBIT_IDENTITY_MODE` | `standalone` for new metadata, `postgoose` for the existing application adapter |
 | `RABBIT_SERVICE_TOKEN` | Management credential, at least 32 characters |
 | `RABBIT_TLS_CERT_FILE`, `RABBIT_TLS_KEY_FILE` | Read-only PEM files for the control listener |
