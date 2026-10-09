@@ -62,7 +62,7 @@ func (r *Repository) CreateTokenForTeam(ctx context.Context, teamID string, toke
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO team_tokens (id, team_id, token, name, description, created_at, expires_at, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, team_id, token, name, description, created_at, expires_at, last_used_at, is_active`,
+		RETURNING id, team_id, token, name, COALESCE(description, ''), created_at, expires_at, last_used_at, is_active`,
 		teamToken.ID, teamToken.TeamID, teamToken.Token, teamToken.Name,
 		teamToken.Description, teamToken.CreatedAt, teamToken.ExpiresAt, teamToken.IsActive,
 	).Scan(&teamToken.ID, &teamToken.TeamID, &teamToken.Token, &teamToken.Name,

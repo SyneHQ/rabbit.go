@@ -53,7 +53,7 @@ func (r *Repository) lookupTeam(ctx context.Context, field, value string) (*Team
 func (r *Repository) GetTeamTokenByToken(ctx context.Context, token string) (*TeamToken, error) {
 	teamToken := &TeamToken{}
 	query := `
-		SELECT t.id, t.team_id, t.token, t.name, t.description, t.created_at,
+		SELECT t.id, t.team_id, t.token, t.name, COALESCE(t.description, ''), t.created_at,
 		       t.expires_at, t.last_used_at, t.is_active,
 		       identity.id, identity.name, identity.description, identity.is_active
 		FROM team_tokens t
@@ -150,7 +150,7 @@ func (r *Repository) ListTeamsWithTokens(ctx context.Context) ([]TokenRow, error
 
 // ListTokensByTeamID retrieves all tokens for a team
 func (r *Repository) ListTokensByTeamID(ctx context.Context, teamID string) ([]TeamToken, error) {
-	query := `SELECT id, team_id, token, name, description, created_at, expires_at, last_used_at, is_active FROM team_tokens WHERE team_id = $1`
+	query := `SELECT id, team_id, token, name, COALESCE(description, ''), created_at, expires_at, last_used_at, is_active FROM team_tokens WHERE team_id = $1`
 
 	rows, err := r.db.DB.QueryContext(ctx, query, teamID)
 	if err != nil {
@@ -192,7 +192,7 @@ func (r *Repository) GetPortAssignmentByToken(ctx context.Context, tokenID uuid.
 	query := `
 		SELECT pa.id, pa.team_id, pa.token_id, pa.port, pa.protocol, pa.is_reserved, pa.created_at, pa.updated_at,
 		       t.id, t.name, t.description, t.is_active,
-		       tt.id, tt.team_id, tt.token, tt.name, tt.description, tt.created_at, tt.expires_at, tt.last_used_at, tt.is_active
+		       tt.id, tt.team_id, tt.token, tt.name, COALESCE(tt.description, ''), tt.created_at, tt.expires_at, tt.last_used_at, tt.is_active
 		FROM port_assignments pa
 		JOIN ` + r.db.identityTeams() + ` t ON pa.team_id = t.id AND t.is_active
 		JOIN team_tokens tt ON pa.token_id = tt.id
@@ -513,7 +513,7 @@ func (r *Repository) GetSessionWithDetails(ctx context.Context, sessionID uuid.U
 		SELECT 
 			cs.id, cs.team_id, cs.token_id, cs.port_assign_id, cs.client_ip, 
 			cs.server_port, cs.protocol, cs.started_at, cs.last_seen_at, cs.status,
-			tt.id, tt.team_id, tt.token, tt.name, tt.description, tt.created_at, 
+			tt.id, tt.team_id, tt.token, tt.name, COALESCE(tt.description, ''), tt.created_at,
 			tt.expires_at, tt.last_used_at, tt.is_active,
 			pa.id, pa.team_id, pa.token_id, pa.port, pa.protocol, pa.is_reserved,
 			pa.created_at, pa.updated_at
