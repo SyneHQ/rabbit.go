@@ -45,8 +45,8 @@ Examples:
 	serverCmd.Flags().StringVar(&bindAddress, "bind", "0.0.0.0", "Address to bind the control server to")
 	serverCmd.Flags().StringVar(&tunnelBindAddress, "tunnel-bind", "127.0.0.1", "Database ingress IP; use a private interface for remote Kelvo workers")
 	serverCmd.Flags().StringVar(&controlPort, "port", "9999", "Control port for tunnel connections")
-	serverCmd.Flags().StringVar(&apiBindAddress, "api-bind", "127.0.0.1", "Management API IP; use a private network or TLS reverse proxy")
-	serverCmd.Flags().StringVar(&apiPort, "api-port", "8080", "HTTP API port for management endpoints")
+	serverCmd.Flags().StringVar(&apiBindAddress, "api-bind", "127.0.0.1", "Management API IP; configure API TLS for remote callers")
+	serverCmd.Flags().StringVar(&apiPort, "api-port", "8080", "Management API port; API TLS certificate settings enable HTTPS")
 	serverCmd.Flags().StringVar(&configFile, "config", "", "YAML file for admission and transport limits")
 	serverCmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 
@@ -82,13 +82,17 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Tunnel server is running on %s:%s\n", bindAddress, controlPort)
 	if apiPort != "" {
+		scheme := "http"
+		if os.Getenv("RABBIT_API_TLS_CERT_FILE") != "" {
+			scheme = "https"
+		}
 		fmt.Printf("API server is running on %s:%s\n", apiBindAddress, apiPort)
 		fmt.Printf("API endpoints:\n")
-		fmt.Printf("  POST http://%s:%s/api/v1/tokens/generate - Generate new token\n", apiBindAddress, apiPort)
-		fmt.Printf("  GET  http://%s:%s/api/v1/teams/:teamId/tokens - Get token details\n", apiBindAddress, apiPort)
-		fmt.Printf("  GET  http://%s:%s/api/v1/teams - List teams with tokens\n", apiBindAddress, apiPort)
-		fmt.Printf("  GET  http://%s:%s/api/v1/health - Health check\n", apiBindAddress, apiPort)
-		fmt.Printf("  GET  http://%s:%s/api/v1/stats - Database statistics\n", apiBindAddress, apiPort)
+		fmt.Printf("  POST %s://%s:%s/api/v1/tokens/generate - Generate new token\n", scheme, apiBindAddress, apiPort)
+		fmt.Printf("  GET  %s://%s:%s/api/v1/teams/:teamId/tokens - Get token details\n", scheme, apiBindAddress, apiPort)
+		fmt.Printf("  GET  %s://%s:%s/api/v1/teams - List teams with tokens\n", scheme, apiBindAddress, apiPort)
+		fmt.Printf("  GET  %s://%s:%s/api/v1/health - Health check\n", scheme, apiBindAddress, apiPort)
+		fmt.Printf("  GET  %s://%s:%s/api/v1/stats - Database statistics\n", scheme, apiBindAddress, apiPort)
 	}
 	fmt.Printf("Press Ctrl+C to stop.\n")
 
