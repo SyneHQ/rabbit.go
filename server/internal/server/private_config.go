@@ -1,15 +1,18 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -19,19 +22,22 @@ import (
 // PrivateConnectConfig is installation-owned. Only files reference private keys.
 // Worker identity entries do not authorize any source without the live issuer.
 type PrivateConnectConfig struct {
-	IssuerIdentity       string         `yaml:"issuer_identity"`
-	Listen               string         `yaml:"listen"`
-	PrivateInterface     string         `yaml:"private_interface"`
-	CertificateFile      string         `yaml:"certificate_file"`
-	PrivateKeyFile       string         `yaml:"private_key_file"`
-	PrivateKeyGroup      *uint32        `yaml:"private_key_group"`
-	ClientCAFile         string         `yaml:"client_ca_file"`
-	AuthorityURL         string         `yaml:"authority_url"`
-	AuthorityCAFile      string         `yaml:"authority_ca_file"`
-	AuthorityCertificate string         `yaml:"authority_certificate_file"`
-	AuthorityPrivateKey  string         `yaml:"authority_private_key_file"`
-	ReplayCapacity       int            `yaml:"replay_capacity"`
-	Trust                []PrivateTrust `yaml:"trust"`
+	IssuerIdentity         string         `yaml:"issuer_identity"`
+	Listen                 string         `yaml:"listen"`
+	PrivateInterface       string         `yaml:"private_interface"`
+	CertificateFile        string         `yaml:"certificate_file"`
+	PrivateKeyFile         string         `yaml:"private_key_file"`
+	PrivateKeyGroup        *uint32        `yaml:"private_key_group"`
+	ClientCAFile           string         `yaml:"client_ca_file"`
+	AuthorityURL           string         `yaml:"authority_url"`
+	AuthorityCAFile        string         `yaml:"authority_ca_file"`
+	AuthorityCertificate   string         `yaml:"authority_certificate_file"`
+	AuthorityPrivateKey    string         `yaml:"authority_private_key_file"`
+	AcceptedKeyID          string         `yaml:"accepted_key_id"`
+	AcceptedPrivateKeyFile string         `yaml:"accepted_private_key_file"`
+	CleanupAuthorityURL    string         `yaml:"cleanup_authority_url"`
+	ReplayCapacity         int            `yaml:"replay_capacity"`
+	Trust                  []PrivateTrust `yaml:"trust"`
 }
 
 type PrivateTrust struct {
@@ -45,6 +51,11 @@ type PrivateTrust struct {
 
 type privateConnect struct {
 	issuerIdentity string
+	acceptedKeyID  string
+	acceptedKey    ed25519.PrivateKey
+	accepted       map[string]*acceptedPrivateParent
+	acceptedLimit  int
+	cleanup        transport.CleanupAuthority
 	address        string
 	tls            *tls.Config
 	trust          []transport.Trust
@@ -133,6 +144,42 @@ func loadPrivateConnect(config *PrivateConnectConfig) (*privateConnect, error) {
 		return fail()
 	}
 	result.authority, result.close = authority, authority.Close
+	if config.AcceptedKeyID != "" || config.AcceptedPrivateKeyFile != "" || config.CleanupAuthorityURL != "" {
+		keyData, keyErr := privateFileForGroup(config.AcceptedPrivateKeyFile, true, config.PrivateKeyGroup)
+		block, rest := pem.Decode(keyData)
+		if keyErr != nil || block == nil || len(rest) != 0 || block.Type != "PRIVATE KEY" || config.AcceptedKeyID == "" || config.CleanupAuthorityURL == "" {
+			authority.Close()
+			return fail()
+		}
+		parsed, keyErr := x509.ParsePKCS8PrivateKey(block.Bytes)
+		key, ok := parsed.(ed25519.PrivateKey)
+		if keyErr != nil || !ok {
+			authority.Close()
+			return fail()
+		}
+		for _, trust := range result.trust {
+			if bytes.Equal(key.Public().(ed25519.PublicKey), trust.PublicKey) {
+				authority.Close()
+				return fail()
+			}
+		}
+		now := time.Now().Unix()
+		_, keyErr = transport.SignAcceptedOpen(transport.AcceptedOpenClaims{Version: 1, DataTicketSHA256: strings.Repeat("a", 64), AcceptanceID: strings.Repeat("b", 32), AcceptedAt: now, ExpiresAt: now + 1}, config.AcceptedKeyID, key)
+		if keyErr != nil || len(config.AcceptedKeyID) > 128 || strings.ContainsAny(config.AcceptedKeyID, " \t\r\n") {
+			authority.Close()
+			return fail()
+		}
+		cleanup, cleanupErr := transport.NewHTTPLeaseAuthority(config.CleanupAuthorityURL, &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: authorityCA, Certificates: []tls.Certificate{authorityCertificate}})
+		if cleanupErr != nil {
+			authority.Close()
+			return fail()
+		}
+		result.acceptedKeyID, result.acceptedKey = config.AcceptedKeyID, key
+		result.accepted = make(map[string]*acceptedPrivateParent)
+		result.acceptedLimit = replayCapacity
+		result.cleanup = cleanup
+		result.close = func() { authority.Close(); cleanup.Close() }
+	}
 	return result, nil
 }
 
